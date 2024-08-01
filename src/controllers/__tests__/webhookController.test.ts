@@ -17,7 +17,7 @@ describe('Webhook Controller', () => {
   it('should verify webhook subscription', async () => {
     const response = await request(app)
       .get('/webhook')
-      .query({ 'hub.mode': 'subscribe', 'hub.verify_token': process.env.VERIFY_TOKEN, 'hub.challenge': '1234' });
+      .query({ 'hub.mode': 'subscribe', 'hub.verify_token': process.env.WHATSAPP_VERIFY_TOKEN, 'hub.challenge': '1234' });
 
     expect(response.status).toBe(200);
     expect(response.text).toBe('1234');

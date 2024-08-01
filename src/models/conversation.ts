@@ -9,6 +9,8 @@ export interface Conversation {
     messages: Message[];
     createdAt: Date;
     updatedAt: Date;
+    archivedAt?: Date;  // New field to track when a conversation was archived
+    isArchived: boolean;  // New field to easily identify archived conversations
 }
 
 export interface ConversationCreate {
@@ -19,4 +21,7 @@ export interface ConversationCreate {
 export interface ConversationUpdate {
     llmType?: LLMType;
     messages?: Message[];
+    updatedAt?: Date;
+    archivedAt?: Date;
+    isArchived?: boolean;
 }

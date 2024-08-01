@@ -1,6 +1,9 @@
 # Ignore node_modules directory
 node_modules/
-combined.log
 # Ignore environment files
 .env
 .env.test
+# Ignore log files
+*.log
+combined.log
+error.log

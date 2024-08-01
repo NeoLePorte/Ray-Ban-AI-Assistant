@@ -1,10 +1,13 @@
+// src/services/mediaService.ts
+
 import axios from 'axios';
 import fs from 'fs/promises';
 import path from 'path';
 import { config } from '../config';
 import logger from '../utils/logger';
 
-const TEMP_DIR = path.join(__dirname, '..', '..', 'tmp');
+// Set the temp directory to the correct path
+const TEMP_DIR = path.join(__dirname, '..', '..', 'tmp');  // Ensure this path matches your actual directory structure
 
 export async function downloadMedia(mediaId: string): Promise<string | null> {
     try {

@@ -1,3 +1,5 @@
+// src/services/anthropicService.ts
+
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from '../config';
 import logger from '../utils/logger';
@@ -11,7 +13,7 @@ export async function getClaudeResponse(query: string): Promise<string> {
             max_tokens: 100,
             messages: [{ role: 'user', content: query }],
         });
-        
+
         // Handle different content types
         const content = response.content[0];
         if ('text' in content) {
@@ -35,8 +37,8 @@ export async function getClaudeImageResponse(query: string, imageBase64: string)
                     role: 'user',
                     content: [
                         { type: 'text', text: query },
-                        { 
-                            type: 'image', 
+                        {
+                            type: 'image',
                             source: {
                                 type: 'base64',
                                 media_type: 'image/jpeg', // Adjust this if you're using a different image format
@@ -47,7 +49,7 @@ export async function getClaudeImageResponse(query: string, imageBase64: string)
                 }
             ],
         });
-        
+
         // Handle different content types
         const content = response.content[0];
         if ('text' in content) {

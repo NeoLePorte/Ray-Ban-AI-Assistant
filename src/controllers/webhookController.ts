@@ -40,11 +40,8 @@ router.post('/', async (req: Request, res: Response) => {
                                 logger.warn('Unauthorized message attempt', { from: incomingMessage.from });
                             }
                         } catch (error) {
-                            if (error instanceof AppError) {
-                                logger.error('AppError processing message:', error.message);
-                            } else {
-                                logger.error('Unexpected error processing message:', error);
-                            }
+                            logger.error('Error processing message:', error);
+                            // You might want to send an error response to the user here
                         }
                     }
                 }
@@ -76,10 +73,11 @@ function convertWhatsAppMessageToInternalFormat(whatsappMessage: any): Message {
             return {
                 ...baseMessage,
                 type: 'image',
-                imageUrl: whatsappMessage.image.id, // We'll use the media ID as the URL for now
+                imageUrl: whatsappMessage.image.id,
                 caption: whatsappMessage.image.caption,
             } as ImageMessage;
         default:
+            logger.warn(`Unsupported message type: ${whatsappMessage.type}`);
             throw new AppError(`Unsupported message type: ${whatsappMessage.type}`, 400);
     }
 }

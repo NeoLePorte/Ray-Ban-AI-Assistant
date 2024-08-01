@@ -1,3 +1,5 @@
+// src/services/openaiService.ts
+
 import { OpenAI } from 'openai';
 import { config } from '../config';
 import logger from '../utils/logger';
