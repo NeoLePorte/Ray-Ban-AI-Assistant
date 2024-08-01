@@ -7,6 +7,9 @@ import { Message, TextMessage, ImageMessage } from '../models/message';
 
 const router = Router();
 
+// Use the environment variable for the authorized number
+const AUTHORIZED_NUMBER = `whatsapp:${config.AUTHORIZED_WHATSAPP_NUMBER}`;
+
 router.get('/', (req: Request, res: Response) => {
     const mode = req.query['hub.mode'];
     const token = req.query['hub.verify_token'];
@@ -30,8 +33,12 @@ router.post('/', async (req: Request, res: Response) => {
                 if (change.field === 'messages') {
                     for (const incomingMessage of change.value.messages) {
                         try {
-                            const message = convertWhatsAppMessageToInternalFormat(incomingMessage);
-                            await processMessage(message);
+                            if (incomingMessage.from === AUTHORIZED_NUMBER) {
+                                const message = convertWhatsAppMessageToInternalFormat(incomingMessage);
+                                await processMessage(message);
+                            } else {
+                                logger.warn('Unauthorized message attempt', { from: incomingMessage.from });
+                            }
                         } catch (error) {
                             if (error instanceof AppError) {
                                 logger.error('AppError processing message:', error.message);

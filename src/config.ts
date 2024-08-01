@@ -9,6 +9,7 @@ interface Config {
     WHATSAPP_VERIFY_TOKEN: string;
     WHATSAPP_PHONE_NUMBER_ID: string;
     WHATSAPP_INCOMING_PHONE_NUMBER: string;
+    AUTHORIZED_WHATSAPP_NUMBER: string;
     OPENAI_API_KEY: string;
     ANTHROPIC_KEY: string;
     REDIS_URL: string;
@@ -27,6 +28,7 @@ export const config: Config = {
     REDIS_URL: process.env.REDIS_URL || '',
     NODE_ENV: process.env.NODE_ENV || 'development',
     LOG_LEVEL: process.env.LOG_LEVEL || 'info',
+    AUTHORIZED_WHATSAPP_NUMBER: process.env.AUTHORIZED_WHATSAPP_NUMBER || '',
 };
 
 // Validate required environment variables
