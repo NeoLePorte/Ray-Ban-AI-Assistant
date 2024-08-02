@@ -41,8 +41,8 @@ jobs:
     - name: Deploy Docker container
       run: |
         ssh -o StrictHostKeyChecking=no -p ${{ secrets.REMOTE_PORT }} ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} << 'EOF'
-          mkdir -p /var/www/ray-ban-ai-assistant
-          chown -R $USER:$USER /var/www/ray-ban-ai-assistant
+          sudo mkdir -p /var/www/ray-ban-ai-assistant
+          sudo chown -R $USER:$USER /var/www/ray-ban-ai-assistant
           cd /var/www/ray-ban-ai-assistant
 
           echo "Logging into Docker registry..."
