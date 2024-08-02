@@ -42,19 +42,13 @@ jobs:
       run: |
         ssh -o StrictHostKeyChecking=no -p ${{ secrets.REMOTE_PORT }} ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} << 'EOF'
           set -e
-          echo "Setting up deployment directory..."
-          sudo mkdir -p /var/www/ray-ban-ai-assistant
-          sudo chown -R $USER:$USER /var/www/ray-ban-ai-assistant
-          cd /var/www/ray-ban-ai-assistant
-          
-          echo "Cloning repository..."
-          git clone https://github.com/your-repo/ray-ban-ai-assistant.git .
+          cd /var/www/Ray-Ban-Ai-Assistant
 
           echo "Logging into Docker registry..."
           echo "${{ secrets.DO_REGISTRY_TOKEN }}" | docker login -u "${{ secrets.DO_REGISTRY_USERNAME }}" --password-stdin registry.digitalocean.com
 
           echo "Pulling Docker image..."
-          docker-compose down
+          docker-compose down || true
           docker-compose pull app
           docker-compose up -d --build
         EOF
