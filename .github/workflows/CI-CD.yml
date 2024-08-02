@@ -20,15 +20,18 @@ jobs:
         echo "WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}" >> $GITHUB_ENV
         echo "WHATSAPP_INCOMING_PHONE_NUMBER=${{ secrets.WHATSAPP_INCOMING_PHONE_NUMBER }}" >> $GITHUB_ENV
         echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> $GITHUB_ENV
+        echo "REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}" >> $GITHUB_ENV
+        echo "ANTHROPIC_KEY=${{ secrets.ANTHROPIC_KEY }}" >> $GITHUB_ENV
+        echo "AUTHORIZED_WHATSAPP_NUMBER=${{ secrets.AUTHORIZED_WHATSAPP_NUMBER }}" >> $GITHUB_ENV
 
     - name: Log in to DigitalOcean Registry
       run: echo "${{ secrets.DO_REGISTRY_TOKEN }}" | docker login -u "${{ secrets.DO_REGISTRY_USERNAME }}" --password-stdin registry.digitalocean.com
 
     - name: Build Docker image
-      run: docker build -t registry.digitalocean.com/ray-ban-ai-assistant:${{ github.sha }} .
+      run: docker build -t registry.digitalocean.com/ray-ban-ai-assistant/${{ secrets.DO_REPO_NAME }}:${{ github.sha }} .
 
     - name: Push Docker image to DigitalOcean Registry
-      run: docker push registry.digitalocean.com/your-registry-name/ray-ban-ai-assistant:${{ github.sha }}
+      run: docker push registry.digitalocean.com/ray-ban-ai-assistant/${{ secrets.DO_REPO_NAME }}:${{ github.sha }}
 
     - name: Add SSH key
       uses: webfactory/ssh-agent@v0.5.3
@@ -37,14 +40,23 @@ jobs:
 
     - name: Deploy Docker container
       run: |
-        ssh -o StrictHostKeyChecking=no ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} << 'EOF'
-          cd /path/to/your/app # Adjust this path as needed
+        ssh -o StrictHostKeyChecking=no -p ${{ secrets.REMOTE_PORT }} ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} << 'EOF'
+          # Create the directory if it doesn't exist
+          mkdir -p /var/www/ray-ban-ai-assistant
+
+          # Ensure correct permissions
+          chown -R $USER:$USER /var/www/ray-ban-ai-assistant
+
+          # Change to the app directory
+          cd /var/www/ray-ban-ai-assistant
+
           echo "Logging into Docker registry..."
           echo "${{ secrets.DO_REGISTRY_TOKEN }}" | docker login -u "${{ secrets.DO_REGISTRY_USERNAME }}" --password-stdin registry.digitalocean.com
+
           echo "Pulling Docker image..."
           docker-compose down
           docker-compose pull app
-          docker-compose up -d
+          docker-compose up -d --build
         EOF
       env:
         NODE_ENV: production
