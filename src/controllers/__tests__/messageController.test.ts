@@ -23,7 +23,7 @@ describe('messageController', () => {
             id: '123',
             role: 'user',
             type: 'text',
-            content: 'Hello, AI!',
+            content: 'hello, ai!',
             from: 'user123',
             timestamp: new Date()
         };

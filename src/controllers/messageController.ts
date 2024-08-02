@@ -157,10 +157,10 @@ async function updateConversation(conversation: Conversation, userMessage: Messa
  * @returns The assistant's response.
  */
 async function handleTextMessage(message: TextMessage, conversation: Conversation): Promise<string> {
-    const query = message.content;
+    const query = message.content.trim().toLowerCase(); // Normalize input by trimming and converting to lowercase
 
-    if (query.toLowerCase().startsWith('switch to ')) {
-        const newLlmType = query.split(' ')[2].toLowerCase() as LLMType;
+    if (query.startsWith('switch to ')) {
+        const newLlmType = query.replace('switch to ', '').replace(/\s+/g, '').toLowerCase() as LLMType; // Normalize spaces and convert to lowercase
         if (newLlmType === 'openai' || newLlmType === 'anthropic') {
             logger.info(`Switching LLM type`, { userId: conversation.userId, oldLlmType: conversation.llmType, newLlmType });
             conversation.llmType = newLlmType;

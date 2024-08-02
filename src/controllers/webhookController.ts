@@ -8,7 +8,7 @@ import { Message, TextMessage, ImageMessage } from '../models/message';
 const router = Router();
 
 // Use the environment variable for the authorized number
-const AUTHORIZED_NUMBER = `whatsapp:${config.AUTHORIZED_WHATSAPP_NUMBER}`;
+const AUTHORIZED_NUMBER = `${config.AUTHORIZED_WHATSAPP_NUMBER}`;
 
 router.get('/', (req: Request, res: Response) => {
     const mode = req.query['hub.mode'];
@@ -27,22 +27,35 @@ router.get('/', (req: Request, res: Response) => {
 router.post('/', async (req: Request, res: Response) => {
     const { body } = req;
 
+    // Log the entire body to understand what data is being received
+    logger.info('Received webhook data', { body });
+
     if (body.object === 'whatsapp_business_account') {
         for (const entry of body.entry) {
             for (const change of entry.changes) {
                 if (change.field === 'messages') {
-                    for (const incomingMessage of change.value.messages) {
-                        try {
-                            if (incomingMessage.from === AUTHORIZED_NUMBER) {
-                                const message = convertWhatsAppMessageToInternalFormat(incomingMessage);
-                                await processMessage(message);
-                            } else {
-                                logger.warn('Unauthorized message attempt', { from: incomingMessage.from });
+                    // Check if change.value.messages is an array
+                    if (Array.isArray(change.value.messages)) {
+                        for (const incomingMessage of change.value.messages) {
+                            try {
+                                const incomingNumber = incomingMessage.from;
+
+                                // Log incoming number and expected number
+                                logger.info('Received message', { incomingNumber, expectedNumber: AUTHORIZED_NUMBER });
+
+                                if (incomingNumber === AUTHORIZED_NUMBER) {
+                                    const message = convertWhatsAppMessageToInternalFormat(incomingMessage);
+                                    await processMessage(message);
+                                } else {
+                                    logger.warn('Unauthorized message attempt', { from: incomingNumber });
+                                }
+                            } catch (error) {
+                                logger.error('Error processing message:', error);
                             }
-                        } catch (error) {
-                            logger.error('Error processing message:', error);
-                            // You might want to send an error response to the user here
                         }
+                    } else {
+                        // Log a warning if messages are not in the expected format
+                        logger.warn('Messages field is not an array', { value: change.value });
                     }
                 }
             }

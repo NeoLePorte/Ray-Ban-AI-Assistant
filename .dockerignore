@@ -1,0 +1,27 @@
+# Node modules
+node_modules
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Dependency directories
+jspm_packages
+
+# Environment variables
+.env
+
+# Docker files
+Dockerfile
+
+# Temporary files
+tmp
+temp
+
+# Build output
+dist
+build
+
+# Other
+coverage
