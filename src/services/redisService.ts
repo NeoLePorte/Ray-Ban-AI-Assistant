@@ -10,7 +10,34 @@ class RedisService {
 
     constructor(redisClient?: Redis) {
         this.redis = redisClient || new Redis(config.REDIS_URL);
-        logger.info('Redis connection established', { service: 'ray-ban-ai-assistant' });
+        
+        // Add connection event listeners
+        this.redis.on('connect', () => {
+            logger.info('Redis connection established', { service: 'ray-ban-ai-assistant' });
+        });
+
+        this.redis.on('error', (err) => {
+            logger.error('Redis connection error', { error: err, service: 'ray-ban-ai-assistant' });
+            // Implement retry logic or handle reconnection
+            this.retryConnection();
+        });
+    }
+
+    private retryConnection() {
+        setTimeout(() => {
+            logger.info('Retrying Redis connection...', { service: 'ray-ban-ai-assistant' });
+            this.redis = new Redis(config.REDIS_URL); // Attempt to reconnect
+
+            // Reattach event listeners to the new Redis instance
+            this.redis.on('connect', () => {
+                logger.info('Redis connection re-established', { service: 'ray-ban-ai-assistant' });
+            });
+
+            this.redis.on('error', (err) => {
+                logger.error('Redis reconnection error', { error: err, service: 'ray-ban-ai-assistant' });
+                this.retryConnection();
+            });
+        }, 5000); // Retry every 5 seconds
     }
 
     async saveConversation(userId: string, conversation: Conversation): Promise<void> {

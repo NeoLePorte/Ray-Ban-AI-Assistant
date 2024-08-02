@@ -5,25 +5,31 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=development
-      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=info
+      - REDIS_URL=${REDIS_URL}  # Use Redis password in the URL
       - WHATSAPP_TOKEN=${WHATSAPP_TOKEN}
       - WHATSAPP_VERIFY_TOKEN=${WHATSAPP_VERIFY_TOKEN}
       - WHATSAPP_PHONE_NUMBER_ID=${WHATSAPP_PHONE_NUMBER_ID}
       - WHATSAPP_INCOMING_PHONE_NUMBER=${WHATSAPP_INCOMING_PHONE_NUMBER}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_KEY=${ANTHROPIC_KEY}
     volumes:
       - ./src:/usr/src/app/src
       - ./nodemon.json:/usr/src/app/nodemon.json
     command: npm run dev
     depends_on:
       - redis
+    networks:
+      - app-network
 
   redis:
     image: redis:alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]  # Use password as a command-line argument
+    networks:
+      - app-network
 
-volumes:
-  redis_data:
+networks:
+  app-network:
+    driver: bridge
