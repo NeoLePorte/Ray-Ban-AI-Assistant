@@ -28,10 +28,10 @@ jobs:
       run: echo "${{ secrets.DO_REGISTRY_TOKEN }}" | docker login -u "${{ secrets.DO_REGISTRY_USERNAME }}" --password-stdin registry.digitalocean.com
 
     - name: Build Docker image
-      run: docker build -t registry.digitalocean.com/${{ secrets.DO_REPO_NAME }}/ray-ban-ai-assistant:${{ github.sha }} .
+      run: docker build -t registry.digitalocean.com/ray-ban-ai-assistant/${{ secrets.DO_REPO_NAME }}:${{ github.sha }} .
 
     - name: Push Docker image to DigitalOcean Registry
-      run: docker push registry.digitalocean.com/${{ secrets.DO_REPO_NAME }}/ray-ban-ai-assistant:${{ github.sha }}
+      run: docker push registry.digitalocean.com/ray-ban-ai-assistant/${{ secrets.DO_REPO_NAME }}:${{ github.sha }}
 
     - name: Add SSH key
       uses: webfactory/ssh-agent@v0.5.3
@@ -41,15 +41,15 @@ jobs:
     - name: Deploy Docker container
       run: |
         ssh -o StrictHostKeyChecking=no -p ${{ secrets.REMOTE_PORT }} ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} << 'EOF'
-          sudo mkdir -p /var/www/ray-ban-ai-assistant
-          sudo chown -R $USER:$USER /var/www/ray-ban-ai-assistant
-          cd /var/www/ray-ban-ai-assistant
+          set -e
+          # Ensure the correct directory path is used
+          cd /var/www/Ray-Ban-Ai-Assistant
 
           echo "Logging into Docker registry..."
           echo "${{ secrets.DO_REGISTRY_TOKEN }}" | docker login -u "${{ secrets.DO_REGISTRY_USERNAME }}" --password-stdin registry.digitalocean.com
 
           echo "Pulling Docker image..."
-          docker-compose down
+          docker-compose down || true
           docker-compose pull app
           docker-compose up -d --build
         EOF
