@@ -99,7 +99,7 @@ function createNewConversation(userId: string): Conversation {
         createdAt: new Date(),
         updatedAt: new Date(),
         isArchived: false,
-        model: 'gpt-4o' // Default to gpt-4o
+        model: 'claude-3-5-sonnet-20240620' // Default to claude-3-5-sonnet
     };
 }
 

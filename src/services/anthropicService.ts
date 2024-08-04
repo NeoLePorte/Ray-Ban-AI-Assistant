@@ -9,7 +9,7 @@ const anthropic = new Anthropic({ apiKey: config.ANTHROPIC_KEY });
 export async function getClaudeResponse(query: string): Promise<string> {
     try {
         const response = await anthropic.messages.create({
-            model: 'claude-3-sonnet-20240229',
+            model: 'claude-3-5-sonnet-20240620',
             max_tokens: 100,
             messages: [{ role: 'user', content: query }],
         });
@@ -30,7 +30,7 @@ export async function getClaudeResponse(query: string): Promise<string> {
 export async function getClaudeImageResponse(query: string, imageBase64: string): Promise<string> {
     try {
         const response = await anthropic.messages.create({
-            model: 'claude-3-sonnet-20240229',
+            model: 'claude-3-5-sonnet-20240620',
             max_tokens: 100,
             messages: [
                 {
