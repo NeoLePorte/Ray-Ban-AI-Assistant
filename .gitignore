@@ -9,3 +9,6 @@ combined.log
 error.log
 logs/
 dist/
+
+tmp/*
+!tmp/.gitkeep

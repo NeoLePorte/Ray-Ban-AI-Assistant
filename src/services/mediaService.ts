@@ -1,54 +1,76 @@
 // src/services/mediaService.ts
 
-import axios from 'axios';
-import fs from 'fs/promises';
+import fs from 'fs';
 import path from 'path';
-import { config } from '../config';
+import axios from 'axios';
 import logger from '../utils/logger';
+import config from '../config';
 
-// Set the temp directory to the correct path
-const TEMP_DIR = path.join(__dirname, '..', '..', 'tmp');  // Ensure this path matches your actual directory structure
+// Path to save the downloaded image
+const SAVE_IMAGE_PATH = './tmp/query_image.jpg';
 
-export async function downloadMedia(mediaId: string): Promise<string | null> {
-    try {
-        // Get media URL
-        const mediaUrlResponse = await axios.get(
-            `https://graph.facebook.com/v19.0/${mediaId}`,
-            {
-                headers: {
-                    'Authorization': `Bearer ${config.WHATSAPP_TOKEN}`
-                }
-            }
-        );
-        const mediaUrl = mediaUrlResponse.data.url;
+// Your WhatsApp API token
+const WHATSAPP_TOKEN = config.WHATSAPP_TOKEN;
 
-        // Download media
-        const mediaResponse = await axios.get(mediaUrl, {
-            responseType: 'arraybuffer',
-            headers: {
-                'Authorization': `Bearer ${config.WHATSAPP_TOKEN}`
-            }
-        });
-
-        // Save media to temp file
-        const fileName = `${mediaId}.jpg`;
-        const filePath = path.join(TEMP_DIR, fileName);
-        await fs.writeFile(filePath, mediaResponse.data);
-
-        logger.info(`Media downloaded and saved: ${filePath}`);
-        return filePath;
-    } catch (error) {
-        logger.error('Error downloading media:', error);
-        return null;
-    }
+/**
+ * Get the media URL from the WhatsApp Graph API using the media ID.
+ * @param mediaId - The ID of the media to fetch the URL for.
+ * @returns The URL of the media.
+ */
+export async function getMediaLink(mediaId: string): Promise<string | null> {
+  try {
+    const response = await axios.get(`https://graph.facebook.com/v19.0/${mediaId}`, {
+      headers: {
+        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+      },
+    });
+    return response.data.url; // Extract the URL from the response
+  } catch (error) {
+    logger.error('Error getting media link', { mediaId, error });
+    return null;
+  }
 }
 
-export async function encodeImage(imagePath: string): Promise<string> {
-    try {
-        const imageBuffer = await fs.readFile(imagePath);
-        return imageBuffer.toString('base64');
-    } catch (error) {
-        logger.error('Error encoding image:', error);
-        throw error;
+/**
+ * Download media from a given URL and save it to a file.
+ * @param mediaUrl - The URL of the media to download.
+ * @returns The path where the media is saved.
+ */
+export async function downloadMedia(mediaUrl: string): Promise<string | null> {
+  try {
+    // Ensure the directory exists
+    const directoryPath = path.dirname(SAVE_IMAGE_PATH);
+    if (!fs.existsSync(directoryPath)) {
+      fs.mkdirSync(directoryPath, { recursive: true });
     }
+
+    const response = await axios.get(mediaUrl, {
+      responseType: 'arraybuffer',
+      headers: {
+        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+      },
+    });
+
+    // Write the file to disk
+    fs.writeFileSync(SAVE_IMAGE_PATH, response.data);
+    return SAVE_IMAGE_PATH;
+  } catch (error) {
+    logger.error('Error downloading media', { mediaUrl, error });
+    return null;
+  }
+}
+
+/**
+ * Encode an image to Base64 format.
+ * @param imagePath - The path of the image to encode.
+ * @returns The Base64 encoded string of the image.
+ */
+export async function encodeImage(imagePath: string): Promise<string> {
+  try {
+    const imageBuffer = fs.readFileSync(imagePath);
+    return imageBuffer.toString('base64');
+  } catch (error) {
+    logger.error('Error encoding image', { imagePath, error });
+    throw error;
+  }
 }

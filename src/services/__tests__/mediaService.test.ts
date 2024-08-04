@@ -1,89 +1,155 @@
 // src/services/__tests__/mediaService.test.ts
 
 import axios from 'axios';
-import fs from 'fs/promises';
+import fs from 'fs';
 import path from 'path';
-import { downloadMedia, encodeImage } from '../mediaService';
+import { downloadMedia, encodeImage, getMediaLink } from '../mediaService';
+import logger from '../../utils/logger';
+import config from '../../config';
 
 jest.mock('axios');
-jest.mock('fs/promises');
+jest.mock('fs', () => ({
+  ...jest.requireActual('fs'),
+  writeFileSync: jest.fn(),
+  readFileSync: jest.fn(),
+  existsSync: jest.fn(),
+  mkdirSync: jest.fn(),
+}));
+
+jest.mock('../../utils/logger');
 
 describe('mediaService', () => {
-    // Set the temp directory to the correct path
-    const TEMP_DIR = path.join(__dirname, '..', '..', '..', 'tmp');
+  const SAVE_IMAGE_PATH = './tmp/query_image.jpg';
+  const TEMP_DIR = path.dirname(SAVE_IMAGE_PATH);
 
-    afterEach(() => {
-        jest.clearAllMocks();
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  describe('getMediaLink', () => {
+    it('should retrieve media URL successfully', async () => {
+      const mediaId = 'test_media_id';
+      const mediaUrl = 'http://example.com/media.jpg';
+
+      // Mock axios.get to return the media URL
+      (axios.get as jest.Mock).mockResolvedValue({
+        data: { url: mediaUrl },
+      });
+
+      const result = await getMediaLink(mediaId);
+
+      // Verify that axios.get was called with the correct URL and headers
+      expect(axios.get).toHaveBeenCalledWith(`https://graph.facebook.com/v19.0/${mediaId}`, {
+        headers: { Authorization: `Bearer ${config.WHATSAPP_TOKEN}` },
+      });
+
+      expect(result).toBe(mediaUrl);
     });
 
-    describe('downloadMedia', () => {
-        it('should download media successfully', async () => {
-            const mediaId = 'test_media_id';
-            const mediaUrl = 'http://example.com/media.jpg';
-            const imageData = Buffer.from('test image data');
+    it('should return null and log an error if media link retrieval fails', async () => {
+      const mediaId = 'test_media_id';
+      const error = new Error('Network error');
 
-            // Mock the responses
-            (axios.get as jest.Mock)
-                .mockResolvedValueOnce({ data: { url: mediaUrl } }) // First call for media URL
-                .mockResolvedValueOnce({ data: imageData }); // Second call for media data
+      // Mock axios.get to reject with an error
+      (axios.get as jest.Mock).mockRejectedValue(error);
 
-            const imagePath = path.join(TEMP_DIR, `${mediaId}.jpg`);
-            
-            // Mock the fs writeFile function
-            (fs.writeFile as jest.Mock).mockResolvedValueOnce(undefined);
+      const result = await getMediaLink(mediaId);
 
-            // Call the function being tested
-            const result = await downloadMedia(mediaId);
+      expect(result).toBeNull();
 
-            // Use path.join and path.resolve for normalization and comparison
-            expect(path.resolve(result!)).toBe(path.resolve(imagePath));
+      // Verify logger is called with the correct message
+      expect(logger.error).toHaveBeenCalledWith('Error getting media link', {
+        mediaId,
+        error,
+      });
+    });
+  });
 
-            // Check if writeFile was called with the correct arguments
-            expect(fs.writeFile).toHaveBeenCalledWith(imagePath, imageData);
-        });
+  describe('downloadMedia', () => {
+    it('should download media successfully', async () => {
+      const mediaUrl = 'http://example.com/media.jpg';
+      const imageData = Buffer.from('test image data');
 
-        it('should return null and log an error if download fails', async () => {
-            const mediaId = 'test_media_id';
-            const error = new Error('Network error');
+      // Mock the axios.get to return a response with data as a buffer
+      (axios.get as jest.Mock).mockResolvedValue({
+        data: imageData,
+      });
 
-            // Mock axios to reject with an error
-            (axios.get as jest.Mock).mockRejectedValueOnce(error);
+      // Mock the fs.existsSync function to return false initially
+      (fs.existsSync as jest.Mock).mockReturnValue(false);
 
-            // Call the function being tested
-            const result = await downloadMedia(mediaId);
+      // Mock the fs.mkdirSync function
+      (fs.mkdirSync as jest.Mock).mockImplementation(() => {});
 
-            // Expect the function to return null on failure
-            expect(result).toBeNull();
-        });
+      // Mock the fs.writeFileSync function to write the image data
+      (fs.writeFileSync as jest.Mock).mockImplementation(() => {});
+
+      // Call the function being tested
+      const result = await downloadMedia(mediaUrl);
+
+      // Ensure paths are correctly compared
+      expect(result).toBe(SAVE_IMAGE_PATH);
+
+      // Check if fs methods were called with the correct arguments
+      expect(fs.existsSync).toHaveBeenCalledWith(TEMP_DIR);
+      expect(fs.mkdirSync).toHaveBeenCalledWith(TEMP_DIR, { recursive: true });
+      expect(fs.writeFileSync).toHaveBeenCalledWith(SAVE_IMAGE_PATH, imageData);
     });
 
-    describe('encodeImage', () => {
-        it('should encode an image to base64 format', async () => {
-            const imagePath = path.join(TEMP_DIR, 'test.jpg');
-            const imageData = Buffer.from('test image data');
+    it('should return null and log an error if download fails', async () => {
+      const mediaUrl = 'http://example.com/media.jpg';
+      const error = new Error('Network error');
 
-            // Mock the fs readFile function
-            (fs.readFile as jest.Mock).mockResolvedValueOnce(imageData);
+      // Mock axios.get to reject with an error
+      (axios.get as jest.Mock).mockRejectedValue(error);
 
-            // Call the function being tested
-            const base64 = await encodeImage(imagePath);
+      // Call the function being tested
+      const result = await downloadMedia(mediaUrl);
 
-            // Expect the function to return correct base64 string
-            expect(base64).toBe(imageData.toString('base64'));
+      // Expect the function to return null on failure
+      expect(result).toBeNull();
 
-            // Check if readFile was called with the correct arguments
-            expect(fs.readFile).toHaveBeenCalledWith(imagePath);
-        });
-
-        it('should throw an error if reading the image fails', async () => {
-            const imagePath = path.join(TEMP_DIR, 'test.jpg');
-            const error = new Error('File not found');
-
-            // Mock fs to reject with an error
-            (fs.readFile as jest.Mock).mockRejectedValueOnce(error);
-
-            // Expect the function to throw an error
-            await expect(encodeImage(imagePath)).rejects.toThrow('File not found');
-        });
+      // Verify logger is called with the correct message
+      expect(logger.error).toHaveBeenCalledWith('Error downloading media', {
+        mediaUrl,
+        error,
+      });
     });
+  });
+
+  describe('encodeImage', () => {
+    it('should encode an image to base64 format', async () => {
+      const imageData = Buffer.from('test image data');
+
+      // Mock the fs readFileSync function
+      (fs.readFileSync as jest.Mock).mockReturnValueOnce(imageData);
+
+      // Call the function being tested
+      const base64 = await encodeImage(SAVE_IMAGE_PATH);
+
+      // Expect the function to return correct base64 string
+      expect(base64).toBe(imageData.toString('base64'));
+
+      // Check if readFileSync was called with the correct arguments
+      expect(fs.readFileSync).toHaveBeenCalledWith(SAVE_IMAGE_PATH);
+    });
+
+    it('should throw an error if reading the image fails', async () => {
+      const error = new Error('File not found');
+
+      // Mock fs.readFileSync to throw an error
+      (fs.readFileSync as jest.Mock).mockImplementationOnce(() => {
+        throw error;
+      });
+
+      // Expect the function to throw an error
+      await expect(encodeImage(SAVE_IMAGE_PATH)).rejects.toThrow('File not found');
+
+      // Verify logger is called with the correct message
+      expect(logger.error).toHaveBeenCalledWith('Error encoding image', {
+        imagePath: SAVE_IMAGE_PATH,
+        error,
+      });
+    });
+  });
 });

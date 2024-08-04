@@ -1,9 +1,10 @@
+// Import necessary modules
 import { Message, TextMessage, ImageMessage } from '../models/message';
 import { Conversation, LLMType } from '../models/conversation';
 import { getGPTResponse, getGPTImageResponse } from '../services/openaiService';
 import { getClaudeResponse, getClaudeImageResponse } from '../services/anthropicService';
 import { sendWhatsappResponse } from '../services/whatsappService';
-import { downloadMedia, encodeImage } from '../services/mediaService';
+import { downloadMedia, encodeImage, getMediaLink } from '../services/mediaService';
 import { redisService } from '../services/redisService';
 import logger from '../utils/logger';
 import { AppError } from '../utils/errorHandler';
@@ -12,6 +13,17 @@ import { generateUniqueId, truncateString } from '../utils/helpers';
 // Constants
 const MAX_CONVERSATION_AGE = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 const MAX_CONVERSATION_MESSAGES = 50; // Maximum number of messages to keep in a conversation
+
+// Mapping of aliases to actual model names
+const MODEL_ALIASES: Record<string, string> = {
+    '4o': 'gpt-4o',
+    'mini': 'gpt-4o-mini',
+    'opus': 'claude-3-opus-20240229',
+    'sonnet': 'claude-3-5-sonnet-20240620'
+};
+
+// Extract valid models from MODEL_ALIASES
+const VALID_MODELS = Object.values(MODEL_ALIASES);
 
 /**
  * Processes an incoming message.
@@ -75,12 +87,20 @@ function isImageMessage(message: Message): message is ImageMessage {
  */
 async function getOrCreateConversation(userId: string): Promise<Conversation> {
     let conversation = await redisService.getConversation(userId);
-    if (!conversation) {
+    if (conversation) {
+        logger.info('Conversation retrieved from Redis', { userId });
+
+        // Convert date strings to Date objects
+        conversation.createdAt = new Date(conversation.createdAt);
+        conversation.updatedAt = new Date(conversation.updatedAt);
+
+        if (isConversationExpired(conversation)) {
+            logger.info('Conversation expired, archiving and creating new one', { userId, conversationId: conversation.id });
+            conversation = await archiveAndCreateNewConversation(conversation);
+        }
+    } else {
         logger.info('No existing conversation found, creating new one', { userId });
         conversation = createNewConversation(userId);
-    } else if (isConversationExpired(conversation)) {
-        logger.info('Conversation expired, archiving and creating new one', { userId, conversationId: conversation.id });
-        conversation = await archiveAndCreateNewConversation(conversation);
     }
     return conversation;
 }
@@ -94,12 +114,12 @@ function createNewConversation(userId: string): Conversation {
     return {
         id: generateUniqueId(),
         userId: userId,
-        llmType: 'openai' as LLMType,
+        llmType: MODEL_ALIASES['sonnet'] as LLMType, // Default to claude-3-5-sonnet using alias
         messages: [],
         createdAt: new Date(),
         updatedAt: new Date(),
         isArchived: false,
-        model: 'claude-3-5-sonnet-20240620' // Default to claude-3-5-sonnet
+        model: MODEL_ALIASES['sonnet'] // Ensure the model field is set correctly
     };
 }
 
@@ -158,26 +178,29 @@ async function updateConversation(conversation: Conversation, userMessage: Messa
  * @returns The assistant's response.
  */
 async function handleTextMessage(message: TextMessage, conversation: Conversation): Promise<string> {
-    const query = message.content.trim(); // Remove toLowerCase() to preserve original casing
+    const query = message.content.trim();
 
     if (query.toLowerCase().startsWith('switch to ')) {
-        const newLlmType = query.toLowerCase().replace('switch to ', '').replace(/\s+/g, '').toLowerCase() as LLMType;
-        if (newLlmType === 'openai' || newLlmType === 'anthropic') {
-            logger.info(`Switching LLM type`, { userId: conversation.userId, oldLlmType: conversation.llmType, newLlmType });
-            conversation.llmType = newLlmType;
-            return `Switched to ${newLlmType}. How can I assist you?`;
+        const alias = query.toLowerCase().replace('switch to ', '').trim();
+        const newModel = MODEL_ALIASES[alias];
+
+        if (newModel && VALID_MODELS.includes(newModel)) {
+            logger.info(`Switching LLM model`, { userId: conversation.userId, oldModel: conversation.llmType, newModel });
+            conversation.llmType = newModel as LLMType;
+            conversation.model = newModel; // Ensure the model field is updated
+            return `Switched to ${alias}. How can I assist you?`;
         } else {
-            logger.warn('Invalid LLM type specified', { userId: conversation.userId, specifiedLlmType: newLlmType });
-            throw new AppError('Invalid AI model specified. Please choose "openai" or "anthropic".', 400);
+            logger.warn('Invalid LLM model specified', { userId: conversation.userId, specifiedModel: alias });
+            throw new AppError(`Invalid AI model specified. Please choose from: ${Object.keys(MODEL_ALIASES).join(', ')}.`, 400);
         }
     }
 
     try {
-        logger.info('Fetching AI response', { userId: conversation.userId, llmType: conversation.llmType });
-        if (conversation.llmType === 'openai') {
-            return await getGPTResponse(query, conversation.model);
+        logger.info('Fetching AI response', { userId: conversation.userId, model: conversation.llmType });
+        if (conversation.llmType.startsWith('gpt')) {
+            return await getGPTResponse(query, conversation.model); // Ensure the correct model is passed
         } else {
-            return await getClaudeResponse(query);
+            return await getClaudeResponse(query, conversation.model); // Ensure the correct model is passed
         }
     } catch (error) {
         logger.error('Error getting AI response', { error, userId: conversation.userId });
@@ -192,7 +215,8 @@ async function handleTextMessage(message: TextMessage, conversation: Conversatio
  * @returns The assistant's response.
  */
 async function handleImageMessage(message: ImageMessage, conversation: Conversation): Promise<string> {
-    const imagePath = await downloadMedia(message.imageUrl);
+    const mediaUrl = await getMediaLink(message.imageUrl); // Obtain the actual media URL
+    const imagePath = await downloadMedia(mediaUrl as string);
     if (!imagePath) {
         logger.error('Failed to download image', { imageUrl: message.imageUrl });
         throw new AppError("Failed to download the image. Please try sending it again.", 500);
@@ -209,8 +233,12 @@ async function handleImageMessage(message: ImageMessage, conversation: Conversat
     const query = message.caption || "What's in this image?";
 
     try {
-        logger.info('Fetching AI image response', { userId: conversation.userId, llmType: conversation.llmType });
-        return conversation.llmType === 'openai' ? await getGPTImageResponse(query, imageBase64, conversation.model) : await getClaudeImageResponse(query, imageBase64);
+        logger.info('Fetching AI image response', { userId: conversation.userId, model: conversation.llmType });
+        if (conversation.llmType.startsWith('gpt')) {
+            return await getGPTImageResponse(query, imageBase64, conversation.model); // Ensure the correct model is passed
+        } else {
+            return await getClaudeImageResponse(query, imageBase64, conversation.model); // Ensure the correct model is passed
+        }
     } catch (error) {
         logger.error('Error processing image', { error, userId: conversation.userId });
         throw new AppError('Failed to process the image. Please try again later.', 500);
