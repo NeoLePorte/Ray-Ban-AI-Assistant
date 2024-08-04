@@ -181,7 +181,9 @@ async function handleTextMessage(message: TextMessage, conversation: Conversatio
     const query = message.content.trim();
 
     if (query.toLowerCase().startsWith('switch to ')) {
-        const alias = query.toLowerCase().replace('switch to ', '').trim();
+        // Normalize alias by removing trailing punctuation
+        const alias = query.toLowerCase().replace('switch to ', '').trim().replace(/[.,!?]+$/, ''); // Remove trailing punctuation
+
         const newModel = MODEL_ALIASES[alias];
 
         if (newModel && VALID_MODELS.includes(newModel)) {
