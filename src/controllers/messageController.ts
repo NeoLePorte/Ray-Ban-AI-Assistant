@@ -98,7 +98,8 @@ function createNewConversation(userId: string): Conversation {
         messages: [],
         createdAt: new Date(),
         updatedAt: new Date(),
-        isArchived: false
+        isArchived: false,
+        model: 'gpt-4o' // Default to gpt-4o
     };
 }
 
@@ -157,10 +158,10 @@ async function updateConversation(conversation: Conversation, userMessage: Messa
  * @returns The assistant's response.
  */
 async function handleTextMessage(message: TextMessage, conversation: Conversation): Promise<string> {
-    const query = message.content.trim().toLowerCase(); // Normalize input by trimming and converting to lowercase
+    const query = message.content.trim(); // Remove toLowerCase() to preserve original casing
 
-    if (query.startsWith('switch to ')) {
-        const newLlmType = query.replace('switch to ', '').replace(/\s+/g, '').toLowerCase() as LLMType; // Normalize spaces and convert to lowercase
+    if (query.toLowerCase().startsWith('switch to ')) {
+        const newLlmType = query.toLowerCase().replace('switch to ', '').replace(/\s+/g, '').toLowerCase() as LLMType;
         if (newLlmType === 'openai' || newLlmType === 'anthropic') {
             logger.info(`Switching LLM type`, { userId: conversation.userId, oldLlmType: conversation.llmType, newLlmType });
             conversation.llmType = newLlmType;
@@ -173,7 +174,11 @@ async function handleTextMessage(message: TextMessage, conversation: Conversatio
 
     try {
         logger.info('Fetching AI response', { userId: conversation.userId, llmType: conversation.llmType });
-        return conversation.llmType === 'openai' ? await getGPTResponse(query) : await getClaudeResponse(query);
+        if (conversation.llmType === 'openai') {
+            return await getGPTResponse(query, conversation.model);
+        } else {
+            return await getClaudeResponse(query);
+        }
     } catch (error) {
         logger.error('Error getting AI response', { error, userId: conversation.userId });
         throw new AppError('Failed to get AI response. Please try again later.', 500);
@@ -205,7 +210,7 @@ async function handleImageMessage(message: ImageMessage, conversation: Conversat
 
     try {
         logger.info('Fetching AI image response', { userId: conversation.userId, llmType: conversation.llmType });
-        return conversation.llmType === 'openai' ? await getGPTImageResponse(query, imageBase64) : await getClaudeImageResponse(query, imageBase64);
+        return conversation.llmType === 'openai' ? await getGPTImageResponse(query, imageBase64, conversation.model) : await getClaudeImageResponse(query, imageBase64);
     } catch (error) {
         logger.error('Error processing image', { error, userId: conversation.userId });
         throw new AppError('Failed to process the image. Please try again later.', 500);

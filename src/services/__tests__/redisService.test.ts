@@ -37,18 +37,19 @@ describe('RedisService', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
       isArchived: false,
+      model: '',
     };
 
     await redisService.saveConversation('testUser', conversation);
     const value = await redisService.getConversation('testUser');
     expect(value).toEqual({
       ...conversation,
-      createdAt: expect.any(Date),
-      updatedAt: expect.any(Date),
+      createdAt: expect.any(String),
+      updatedAt: expect.any(String),
       messages: [
         {
           ...textMessage,
-          timestamp: expect.any(Date),
+          timestamp: expect.any(String),
         },
       ],
     });
@@ -73,18 +74,19 @@ describe('RedisService', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
       isArchived: false,
+      model: '',
     };
 
     await redisService.saveConversation('testUser', conversation);
     const value = await redisService.getConversation('testUser');
     expect(value).toEqual({
       ...conversation,
-      createdAt: expect.any(Date),
-      updatedAt: expect.any(Date),
+      createdAt: expect.any(String),
+      updatedAt: expect.any(String),
       messages: [
         {
           ...imageMessage,
-          timestamp: expect.any(Date),
+          timestamp: expect.any(String),
         },
       ],
     });
@@ -104,6 +106,7 @@ describe('RedisService', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
       isArchived: false,
+      model: '',
     };
 
     await redisService.saveConversation('testUser', conversation);
@@ -121,6 +124,7 @@ describe('RedisService', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
       isArchived: false,
+      model: '',
     };
 
     await redisService.saveConversation('testUser', conversation);
@@ -133,7 +137,9 @@ describe('RedisService', () => {
     expect(archivedConversation).toEqual({
       ...conversation,
       isArchived: true,
-      archivedAt: expect.any(Date),
+      archivedAt: expect.any(String),
+      createdAt: expect.any(String),
+      updatedAt: expect.any(String),
     });
   });
 
@@ -151,6 +157,7 @@ describe('RedisService', () => {
       updatedAt: new Date(),
       isArchived: true,
       archivedAt: new Date(),
+      model: '',
     };
 
     const conversation2: Conversation = {
@@ -162,6 +169,7 @@ describe('RedisService', () => {
       updatedAt: new Date(),
       isArchived: true,
       archivedAt: new Date(),
+      model: '',
     };
 
     await redisService.archiveConversation(conversation1);

@@ -1,5 +1,3 @@
-// src/services/redisService.ts
-
 import { Redis } from 'ioredis';
 import { config } from '../config';
 import logger from '../utils/logger';
@@ -11,14 +9,12 @@ class RedisService {
     constructor(redisClient?: Redis) {
         this.redis = redisClient || new Redis(config.REDIS_URL);
         
-        // Add connection event listeners
         this.redis.on('connect', () => {
             logger.info('Redis connection established', { service: 'ray-ban-ai-assistant' });
         });
 
         this.redis.on('error', (err) => {
             logger.error('Redis connection error', { error: err, service: 'ray-ban-ai-assistant' });
-            // Implement retry logic or handle reconnection
             this.retryConnection();
         });
     }
@@ -26,18 +22,15 @@ class RedisService {
     private retryConnection() {
         setTimeout(() => {
             logger.info('Retrying Redis connection...', { service: 'ray-ban-ai-assistant' });
-            this.redis = new Redis(config.REDIS_URL); // Attempt to reconnect
-
-            // Reattach event listeners to the new Redis instance
+            this.redis = new Redis(config.REDIS_URL);
             this.redis.on('connect', () => {
                 logger.info('Redis connection re-established', { service: 'ray-ban-ai-assistant' });
             });
-
             this.redis.on('error', (err) => {
                 logger.error('Redis reconnection error', { error: err, service: 'ray-ban-ai-assistant' });
                 this.retryConnection();
             });
-        }, 5000); // Retry every 5 seconds
+        }, 5000);
     }
 
     async saveConversation(userId: string, conversation: Conversation): Promise<void> {
@@ -50,23 +43,12 @@ class RedisService {
         }
     }
 
-    async deleteArchivedConversation(userId: string, conversationId: string): Promise<void> {
-        try {
-            await this.redis.del(`archived:conversation:${userId}:${conversationId}`);
-            logger.info('Archived conversation deleted from Redis', { conversationId, userId });
-        } catch (error) {
-            logger.error('Error deleting archived conversation from Redis', { error, userId });
-            throw error;
-        }
-    }
-
     async getConversation(userId: string): Promise<Conversation | null> {
         try {
             const conversation = await this.redis.get(`conversation:${userId}`);
             if (conversation) {
                 logger.info('Conversation retrieved from Redis', { userId });
-                const parsedConversation = JSON.parse(conversation);
-                return this.deserializeDates(parsedConversation);
+                return JSON.parse(conversation);
             } else {
                 logger.info('No conversation found in Redis', { userId });
             }
@@ -108,8 +90,7 @@ class RedisService {
             const conversation = await this.redis.get(`archived:conversation:${userId}:${conversationId}`);
             if (conversation) {
                 logger.info('Archived conversation retrieved from Redis', { conversationId, userId });
-                const parsedConversation = JSON.parse(conversation);
-                return this.deserializeDates(parsedConversation);
+                return JSON.parse(conversation);
             }
             return null;
         } catch (error) {
@@ -137,18 +118,6 @@ class RedisService {
             logger.error('Error closing Redis connection', { error });
             throw error;
         }
-    }
-
-    private deserializeDates(obj: any): any {
-        const dateProperties = ['createdAt', 'updatedAt', 'archivedAt', 'timestamp'];
-        for (const key in obj) {
-            if (dateProperties.includes(key) && typeof obj[key] === 'string') {
-                obj[key] = new Date(obj[key]);
-            } else if (typeof obj[key] === 'object' && obj[key] !== null) {
-                obj[key] = this.deserializeDates(obj[key]);
-            }
-        }
-        return obj;
     }
 }
 

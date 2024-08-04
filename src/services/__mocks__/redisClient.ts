@@ -1,55 +1,29 @@
-import redisMock from 'redis-mock';
 import { Redis } from 'ioredis';
 
-const redisClient = redisMock.createClient();
+const mockStorage: { [key: string]: string } = {};
 
-// Extend the mock client with additional methods
-const extendedRedisClient = {
-  ...redisClient,
-  
-  // Add missing methods
-  set: (key: string, value: string) => {
-    return new Promise<'OK'>((resolve) => {
-      redisClient.set(key, value, () => resolve('OK'));
-    });
-  },
-
-  get: (key: string) => {
-    return new Promise<string | null>((resolve) => {
-      redisClient.get(key, (_, reply) => resolve(reply));
-    });
-  },
-
-  del: (key: string) => {
-    return new Promise<number>((resolve) => {
-      redisClient.del(key, (_, reply) => resolve(reply));
-    });
-  },
-
-  keys: (pattern: string) => {
-    return new Promise<string[]>((resolve) => {
-      redisClient.keys(pattern, (_, reply) => resolve(reply));
-    });
-  },
-
-  flushall: () => {
-    return new Promise<'OK'>((resolve) => {
-      redisClient.flushall(() => resolve('OK'));
-    });
-  },
-
-  // Add quit method
-  quit: () => {
-    return new Promise<'OK'>((resolve) => {
-      // Simulating async behavior
-      setTimeout(() => resolve('OK'), 0);
-    });
-  },
-
-  // Add any other methods you're using in your RedisService
+const redisClient = {
+  set: jest.fn((key, value) => {
+    mockStorage[key] = value;
+    return Promise.resolve('OK');
+  }),
+  get: jest.fn((key) => Promise.resolve(mockStorage[key] || null)),
+  del: jest.fn((key) => {
+    delete mockStorage[key];
+    return Promise.resolve(1);
+  }),
+  keys: jest.fn((pattern) => {
+    const regex = new RegExp(pattern.replace('*', '.*'));
+    return Promise.resolve(Object.keys(mockStorage).filter(key => regex.test(key)));
+  }),
+  flushall: jest.fn(() => {
+    Object.keys(mockStorage).forEach(key => delete mockStorage[key]);
+    return Promise.resolve('OK');
+  }),
+  quit: jest.fn(() => Promise.resolve('OK')),
+  on: jest.fn(),
 };
 
-// Type assertion to match ioredis.Redis
-const mockedRedisClient = extendedRedisClient as unknown as Redis;
+const mockedRedisClient = redisClient as unknown as Redis;
 
 export default mockedRedisClient;

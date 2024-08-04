@@ -11,6 +11,7 @@ export interface Conversation {
     updatedAt: Date;
     archivedAt?: Date;  // New field to track when a conversation was archived
     isArchived: boolean;  // New field to easily identify archived conversations
+    model: string;
 }
 
 export interface ConversationCreate {
