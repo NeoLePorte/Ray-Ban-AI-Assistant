@@ -13,6 +13,7 @@ services:
       - WHATSAPP_INCOMING_PHONE_NUMBER=${WHATSAPP_INCOMING_PHONE_NUMBER}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_KEY=${ANTHROPIC_KEY}
+      - AUTHORIZED_WHATSAPP_NUMBER=${AUTHORIZED_WHATSAPP_NUMBER}
     volumes:
       - ./src:/usr/src/app/src
       - ./nodemon.json:/usr/src/app/nodemon.json
