@@ -1,4 +1,3 @@
-// src/controllers/__tests__/webhookController.test.ts
 import request from 'supertest';
 import { app } from '../../server';
 import nock from 'nock';

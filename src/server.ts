@@ -1,6 +1,6 @@
 import express from 'express';
 import webhookController from './controllers/webhookController';
-import errorHandler from './utils/errorHandler';
+import { errorHandler } from './utils/errorHandler';
 import logger from './utils/logger';
 import { config } from './config';
 

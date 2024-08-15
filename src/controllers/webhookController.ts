@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { config } from '../config';
 import logger from '../utils/logger';
-import { processMessage } from '../controllers/messageController';
+import { processMessage } from './messageController';
 import { AppError } from '../utils/errorHandler';
 import { Message, TextMessage, ImageMessage } from '../models/message';
 
@@ -31,12 +31,12 @@ router.post('/', async (req: Request, res: Response) => {
     logger.info('Received webhook data', { body });
 
     if (body.object === 'whatsapp_business_account') {
-        for (const entry of body.entry) {
-            for (const change of entry.changes) {
+        for (const entry of body.entry || []) {
+            for (const change of entry.changes || []) {
                 if (change.field === 'messages') {
-                    // Check if change.value.messages is an array
-                    if (Array.isArray(change.value.messages)) {
-                        for (const incomingMessage of change.value.messages) {
+                    const messages = change.value.messages;
+                    if (Array.isArray(messages)) {
+                        for (const incomingMessage of messages) {
                             try {
                                 const incomingNumber = incomingMessage.from;
 
@@ -50,7 +50,7 @@ router.post('/', async (req: Request, res: Response) => {
                                     logger.warn('Unauthorized message attempt', { from: incomingNumber });
                                 }
                             } catch (error) {
-                                logger.error('Error processing message:', error);
+                                logger.error('Error processing message', { error });
                             }
                         }
                     } else {
@@ -67,27 +67,36 @@ router.post('/', async (req: Request, res: Response) => {
     }
 });
 
+// Ensure the message format is compatible with the latest updates
 function convertWhatsAppMessageToInternalFormat(whatsappMessage: any): Message {
     const baseMessage = {
         id: whatsappMessage.id,
-        timestamp: new Date(Number(whatsappMessage.timestamp) * 1000),
+        timestamp: new Date(Number(whatsappMessage.timestamp) * 1000), // Convert UNIX timestamp
         from: whatsappMessage.from,
         role: 'user' as const,
     };
 
     switch (whatsappMessage.type) {
         case 'text':
+            if (!whatsappMessage.text || !whatsappMessage.text.body) {
+                logger.warn('Invalid text message format', { message: whatsappMessage });
+                throw new AppError('Invalid text message format', 400);
+            }
             return {
                 ...baseMessage,
                 type: 'text',
                 content: whatsappMessage.text.body,
             } as TextMessage;
         case 'image':
+            if (!whatsappMessage.image || !whatsappMessage.image.id) {
+                logger.warn('Invalid image message format', { message: whatsappMessage });
+                throw new AppError('Invalid image message format', 400);
+            }
             return {
                 ...baseMessage,
                 type: 'image',
-                imageUrl: whatsappMessage.image.id,
-                caption: whatsappMessage.image.caption,
+                imageUrl: whatsappMessage.image.id, // Assuming image.id contains the URL or ID
+                caption: whatsappMessage.image.caption || '',
             } as ImageMessage;
         default:
             logger.warn(`Unsupported message type: ${whatsappMessage.type}`);

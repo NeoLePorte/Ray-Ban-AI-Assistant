@@ -16,4 +16,23 @@ export interface ImageMessage extends BaseMessage {
   caption?: string;
 }
 
-export type Message = TextMessage | ImageMessage;
+export interface DocumentMessage extends BaseMessage {
+  type: 'document';
+  content: string;
+  mimeType: string;
+  documentBuffer: Buffer;
+}
+
+export type Message = TextMessage | ImageMessage | DocumentMessage;
+
+export function isTextMessage(message: Message): message is TextMessage {
+  return message.type === 'text';
+}
+
+export function isImageMessage(message: Message): message is ImageMessage {
+  return message.type === 'image';
+}
+
+export function isDocumentMessage(message: Message): message is DocumentMessage {
+  return message.type === 'document';
+}

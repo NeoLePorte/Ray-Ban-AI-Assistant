@@ -1,7 +1,8 @@
 import dotenv from 'dotenv';
 import path from 'path';
+import { LLMType } from './models/conversation';
 
-dotenv.config({ path: path.join(__dirname, '..', '.env') });
+dotenv.config({ path: path.join(__dirname, '..', '..', '.env') });
 
 interface Config {
     PORT: number;
@@ -15,6 +16,8 @@ interface Config {
     REDIS_URL: string;
     NODE_ENV: string;
     LOG_LEVEL: string;
+    DEFAULT_MODEL: LLMType;
+    EMBEDDING_MODEL: string;
 }
 
 export const config: Config = {
@@ -29,9 +32,10 @@ export const config: Config = {
     NODE_ENV: process.env.NODE_ENV || 'development',
     LOG_LEVEL: process.env.LOG_LEVEL || 'info',
     AUTHORIZED_WHATSAPP_NUMBER: process.env.AUTHORIZED_WHATSAPP_NUMBER || '',
+    DEFAULT_MODEL: (process.env.DEFAULT_MODEL as LLMType) || 'gpt-4o',
+    EMBEDDING_MODEL: process.env.EMBEDDING_MODEL || 'gpt-4o'
 };
 
-// Validate required environment variables
 const requiredEnvVars: (keyof Config)[] = [
     'WHATSAPP_TOKEN',
     'WHATSAPP_VERIFY_TOKEN',
@@ -40,6 +44,7 @@ const requiredEnvVars: (keyof Config)[] = [
     'OPENAI_API_KEY',
     'ANTHROPIC_KEY',
     'REDIS_URL',
+    'AUTHORIZED_WHATSAPP_NUMBER'
 ];
 
 for (const envVar of requiredEnvVars) {
@@ -48,7 +53,6 @@ for (const envVar of requiredEnvVars) {
     }
 }
 
-// Additional configuration checks
 if (!['development', 'production', 'test'].includes(config.NODE_ENV)) {
     throw new Error(`Invalid NODE_ENV: ${config.NODE_ENV}`);
 }
