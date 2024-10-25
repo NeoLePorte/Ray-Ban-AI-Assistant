@@ -1,26 +1,25 @@
-import { processMessage } from '../../controllers/messageController';
-import { Message, TextMessage, ImageMessage, DocumentMessage } from '../../models/message';
+import { processMessage } from '../messageController';
 import { Conversation } from '../../models/conversation';
 import * as ragService from '../../services/ragService';
-import { redisService } from '../../services/redisService';
-import { sendWhatsappResponse } from '../../services/whatsappService';
+import { redisService, RedisService } from '../../services/redisService';
+import { sendMMS } from '../../services/twilioService';
 import logger from '../../utils/logger';
-import { AppError } from '../../utils/errorHandler';
 
-jest.mock('../services/ragService');
-jest.mock('../services/redisService');
-jest.mock('../services/whatsappService');
-jest.mock('../utils/logger');
+jest.mock('../../services/ragService');
+jest.mock('../../services/redisService');
+jest.mock('../../services/twilioService');
+jest.mock('../../utils/logger');
 
 describe('MessageController', () => {
+    let mockRedisService: jest.Mocked<RedisService>;
     let mockConversation: Conversation;
 
-    beforeEach(async () => {
+    beforeEach(() => {
         jest.clearAllMocks();
 
         mockConversation = {
             id: 'conv-1',
-            userId: 'user-1',
+            userId: '1234567890',
             model: 'gpt-4o',
             messages: [],
             createdAt: new Date(),
@@ -29,131 +28,90 @@ describe('MessageController', () => {
             userContext: '',
         };
 
-        ((await redisService).getConversation as jest.Mock).mockResolvedValue(mockConversation);
-        ((await redisService).saveConversation as jest.Mock).mockResolvedValue(undefined);
+        mockRedisService = {
+            getConversation: jest.fn().mockResolvedValue(mockConversation),
+            saveConversation: jest.fn().mockResolvedValue(undefined),
+            deleteConversation: jest.fn().mockResolvedValue(undefined),
+            archiveConversation: jest.fn().mockResolvedValue(undefined),
+            getArchivedConversation: jest.fn().mockResolvedValue(mockConversation),
+            getArchivedConversationsKeys: jest.fn().mockResolvedValue(['conv-1']),
+            storeEmbedding: jest.fn().mockResolvedValue(undefined),
+            getEmbeddings: jest.fn().mockResolvedValue({}),
+            deleteDocuments: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<RedisService>;
+
+        (redisService as unknown) = Promise.resolve(mockRedisService);
     });
 
     describe('processMessage', () => {
         it('should process a text message and generate a response', async () => {
-            const mockTextMessage: TextMessage = {
-                id: 'msg-1',
-                role: 'user',
-                timestamp: new Date(),
-                from: 'user-1',
-                type: 'text',
-                content: 'Hello',
+            const senderId = '1234567890';
+            const receivedMessage = {
+                text: 'Hello',
             };
 
             (ragService.generateAnswer as jest.Mock).mockResolvedValue('Hi there!');
 
-            await processMessage(mockTextMessage);
+            await processMessage(senderId, receivedMessage);
 
-            expect(ragService.generateAnswer).toHaveBeenCalledWith('Hello', mockConversation.model, '');
-            expect(sendWhatsappResponse).toHaveBeenCalledWith('user-1', 'Hi there!');
-            expect((await redisService).saveConversation).toHaveBeenCalled();
+            expect(ragService.generateAnswer).toHaveBeenCalledWith('Hello', 'gpt-4o', '');
+            expect(sendMMS).toHaveBeenCalledWith('1234567890', 'Hi there!', undefined);
+            expect(mockRedisService.saveConversation).toHaveBeenCalled();
         });
 
         it('should process an image message and analyze the image', async () => {
-            const mockImageMessage: ImageMessage = {
-                id: 'msg-2',
-                role: 'user',
-                timestamp: new Date(),
-                from: 'user-1',
-                type: 'image',
-                imageUrl: 'http://example.com/image.jpg',
+            const senderId = '1234567890';
+            const receivedMessage = {
+                mediaUrl: 'http://example.com/image.jpg',
             };
 
             (ragService.analyzeImageAndRetrieveInfo as jest.Mock).mockResolvedValue('This is an image of a cat.');
 
-            await processMessage(mockImageMessage);
+            await processMessage(senderId, receivedMessage);
 
-            expect(ragService.analyzeImageAndRetrieveInfo).toHaveBeenCalledWith(mockImageMessage.imageUrl, "What's in this image?", mockConversation.model);
-            expect(sendWhatsappResponse).toHaveBeenCalledWith('user-1', 'This is an image of a cat.');
-            expect((await redisService).saveConversation).toHaveBeenCalled();
-        });
-
-        it('should process a document message and add it to the vector store', async () => {
-            const mockDocumentMessage: DocumentMessage = {
-                id: 'msg-3',
-                role: 'user',
-                timestamp: new Date(),
-                from: 'user-1',
-                type: 'document',
-                content: 'Document content',
-                mimeType: 'application/pdf',
-                documentBuffer: Buffer.from('dummy buffer'),
-            };
-
-            (ragService.addPDFToVectorStore as jest.Mock).mockResolvedValue(undefined);
-
-            await processMessage(mockDocumentMessage);
-
-            expect(ragService.addPDFToVectorStore).toHaveBeenCalledWith(mockDocumentMessage.documentBuffer, { userId: 'user-1' });
-            expect(sendWhatsappResponse).toHaveBeenCalledWith('user-1', 'Document processed and added to your knowledge base. You can now ask questions about its content.');
-            expect((await redisService).saveConversation).toHaveBeenCalled();
-        });
-
-        it('should handle unsupported message types by throwing an AppError', async () => {
-            const mockUnsupportedMessage: any = {
-                id: 'msg-4',
-                role: 'user',
-                timestamp: new Date(),
-                from: 'user-1',
-                type: 'unsupported',
-            };
-
-            await expect(processMessage(mockUnsupportedMessage)).rejects.toThrow(AppError);
-            expect(sendWhatsappResponse).toHaveBeenCalledWith('user-1', 'Error: Unsupported message type: {"id":"msg-4","role":"user","timestamp":"...","from":"user-1","type":"unsupported"}');
-        });
-
-        it('should update user context when context: is provided', async () => {
-            const mockTextMessage: TextMessage = {
-                id: 'msg-1',
-                role: 'user',
-                timestamp: new Date(),
-                from: 'user-1',
-                type: 'text',
-                content: 'context: update my context',
-            };
-
-            await processMessage(mockTextMessage);
-
-            expect((await redisService).saveConversation).toHaveBeenCalledWith('user-1', expect.objectContaining({ userContext: 'update my context' }));
-            expect(sendWhatsappResponse).toHaveBeenCalledWith('user-1', 'User context updated successfully.');
+            expect(ragService.analyzeImageAndRetrieveInfo).toHaveBeenCalledWith(expect.any(String), "What's in this image?", 'gpt-4o');
+            expect(sendMMS).toHaveBeenCalledWith('1234567890', 'This is an image of a cat.', 'http://example.com/image.jpg');
+            expect(mockRedisService.saveConversation).toHaveBeenCalled();
         });
 
         it('should handle model switching', async () => {
-            const mockTextMessage: TextMessage = {
-                id: 'msg-1',
-                role: 'user',
-                timestamp: new Date(),
-                from: 'user-1',
-                type: 'text',
-                content: 'switch to claude',
+            const senderId = '1234567890';
+            const receivedMessage = {
+                text: 'switch to claude-3-opus-20240229',
             };
 
-            await processMessage(mockTextMessage);
+            await processMessage(senderId, receivedMessage);
 
-            expect(sendWhatsappResponse).toHaveBeenCalledWith('user-1', 'Switched to claude. How can I assist you?');
-            expect((await redisService).saveConversation).toHaveBeenCalledWith('user-1', expect.objectContaining({ model: 'claude' }));
+            expect(sendMMS).toHaveBeenCalledWith('1234567890', 'Switched to claude-3-opus-20240229. How can I assist you?', undefined);
+            expect(mockRedisService.saveConversation).toHaveBeenCalledWith('1234567890', expect.objectContaining({ model: 'claude-3-opus-20240229' }));
+        });
+
+        it('should handle location-based queries', async () => {
+            const senderId = '1234567890';
+            const receivedMessage = {
+                text: 'in New York, what\'s the weather?',
+            };
+
+            (ragService.getLocationBasedInfo as jest.Mock).mockResolvedValue('The weather in New York is sunny.');
+
+            await processMessage(senderId, receivedMessage);
+
+            expect(ragService.getLocationBasedInfo).toHaveBeenCalledWith('New York', 'what\'s the weather?', 'gpt-4o');
+            expect(sendMMS).toHaveBeenCalledWith('1234567890', 'The weather in New York is sunny.', undefined);
         });
 
         it('should handle errors and send appropriate error messages', async () => {
-            const mockTextMessage: TextMessage = {
-                id: 'msg-1',
-                role: 'user',
-                timestamp: new Date(),
-                from: 'user-1',
-                type: 'text',
-                content: 'Hello',
+            const senderId = '1234567890';
+            const receivedMessage = {
+                text: 'Hello',
             };
 
             (ragService.generateAnswer as jest.Mock).mockRejectedValue(new Error('Test error'));
 
-            await processMessage(mockTextMessage);
+            await processMessage(senderId, receivedMessage);
 
-            expect(logger.error).toHaveBeenCalledWith('Error processing message', expect.objectContaining({ error: expect.any(Error), messageId: 'msg-1', userId: 'user-1' }));
-            expect(sendWhatsappResponse).toHaveBeenCalledWith('user-1', 'Sorry, I encountered an error while processing your message.');
+            expect(logger.error).toHaveBeenCalledWith('Error processing message', expect.any(Object));
+            expect(sendMMS).toHaveBeenCalledWith('1234567890', 'Sorry, I encountered an error while processing your message.', undefined);
         });
     });
 });

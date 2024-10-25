@@ -1,29 +1,35 @@
 export interface BaseMessage {
   id: string;
-  role: 'user' | 'assistant';
-  timestamp: Date;
-  from: string;
+  timestamp: number;
 }
 
 export interface TextMessage extends BaseMessage {
   type: 'text';
-  content: string;
+  text: string;
 }
 
 export interface ImageMessage extends BaseMessage {
   type: 'image';
-  imageUrl: string;
-  caption?: string;
+  attachments: [{
+    type: 'image';
+    payload: {
+      url: string;
+    };
+  }];
 }
 
-export interface DocumentMessage extends BaseMessage {
-  type: 'document';
-  content: string;
-  mimeType: string;
-  documentBuffer: Buffer;
+export interface FileMessage extends BaseMessage {
+  type: 'file';
+  attachments: [{
+    type: 'file';
+    payload: {
+      url: string;
+      name: string;
+    };
+  }];
 }
 
-export type Message = TextMessage | ImageMessage | DocumentMessage;
+export type Message = TextMessage | ImageMessage | FileMessage;
 
 export function isTextMessage(message: Message): message is TextMessage {
   return message.type === 'text';
@@ -33,6 +39,6 @@ export function isImageMessage(message: Message): message is ImageMessage {
   return message.type === 'image';
 }
 
-export function isDocumentMessage(message: Message): message is DocumentMessage {
-  return message.type === 'document';
+export function isFileMessage(message: Message): message is FileMessage {
+  return message.type === 'file';
 }

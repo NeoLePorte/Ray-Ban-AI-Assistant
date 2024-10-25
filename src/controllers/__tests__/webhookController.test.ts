@@ -1,185 +1,61 @@
-import request from 'supertest';
-import { app } from '../../server';
-import nock from 'nock';
-import { processMessage } from '../../controllers/messageController';
+import { handleTwilioWebhook } from '../webhookController';
+import { Request, Response } from 'express';
+import { processMessage } from '../messageController';
 import logger from '../../utils/logger';
+import { config } from '../../config';
 
-// Mock the processMessage and logger
-jest.mock('../../controllers/messageController');
+jest.mock('../messageController');
 jest.mock('../../utils/logger');
+jest.mock('../../config', () => ({
+    AUTHORIZED_PHONE_NUMBER: '1234567890',
+}));
 
 describe('Webhook Controller', () => {
-  const AUTHORIZED_NUMBER = process.env.AUTHORIZED_WHATSAPP_NUMBER || '16315551181';
+    let mockRequest: Partial<Request>;
+    let mockResponse: Partial<Response>;
 
-  beforeAll(() => {
-    // Configure network behavior
-    nock.disableNetConnect();
-    nock.enableNetConnect('127.0.0.1');
-  });
+    beforeEach(() => {
+        mockRequest = {};
+        mockResponse = {
+            status: jest.fn().mockReturnThis(),
+            send: jest.fn(),
+            sendStatus: jest.fn(),
+        };
+        jest.clearAllMocks();
+    });
 
-  afterAll(() => {
-    // Reset network behavior
-    nock.cleanAll();
-    nock.enableNetConnect();
-  });
+    describe('handleTwilioWebhook', () => {
+        it('should process a message from an authorized user', async () => {
+            mockRequest.body = {
+                From: config.AUTHORIZED_PHONE_NUMBER,
+                Body: 'Hello',
+            };
+            await handleTwilioWebhook(mockRequest as Request, mockResponse as Response);
+            expect(processMessage).toHaveBeenCalledWith(config.AUTHORIZED_PHONE_NUMBER, { text: 'Hello', mediaUrl: undefined });
+            expect(mockResponse.status).toHaveBeenCalledWith(200);
+            expect(mockResponse.send).toHaveBeenCalledWith('EVENT_RECEIVED');
+        });
 
-  beforeEach(() => {
-    // Reset mocks before each test
-    jest.clearAllMocks();
-  });
+        it('should not process a message from an unauthorized user', async () => {
+            mockRequest.body = {
+                From: 'unauthorized_number',
+                Body: 'Hello',
+            };
+            await handleTwilioWebhook(mockRequest as Request, mockResponse as Response);
+            expect(processMessage).not.toHaveBeenCalled();
+            expect(logger.warn).toHaveBeenCalledWith('Unauthorized sender', { From: 'unauthorized_number' });
+            expect(mockResponse.sendStatus).toHaveBeenCalledWith(403);
+        });
 
-  it('should verify webhook subscription', async () => {
-    const response = await request(app)
-      .get('/webhook')
-      .query({
-        'hub.mode': 'subscribe',
-        'hub.verify_token': process.env.WHATSAPP_VERIFY_TOKEN,
-        'hub.challenge': '1234',
-      });
-
-    expect(response.status).toBe(200);
-    expect(response.text).toBe('1234');
-  });
-
-  it('should process an authorized text message', async () => {
-    const sampleData = {
-      object: 'whatsapp_business_account',
-      entry: [
-        {
-          id: 'entry_id',
-          changes: [
-            {
-              field: 'messages',
-              value: {
-                messaging_product: 'whatsapp',
-                metadata: {
-                  display_phone_number: '16505551111',
-                  phone_number_id: '123456123',
-                },
-                contacts: [
-                  {
-                    profile: {
-                      name: 'test user name',
-                    },
-                    wa_id: AUTHORIZED_NUMBER, // Use the authorized number
-                  },
-                ],
-                messages: [
-                  {
-                    from: AUTHORIZED_NUMBER,
-                    id: 'ABGGFlA5Fpa',
-                    timestamp: '1504902988',
-                    type: 'text',
-                    text: {
-                      body: 'this is a text message',
-                    },
-                  },
-                ],
-              },
-            },
-          ],
-        },
-      ],
-    };
-
-    const response = await request(app).post('/webhook').send(sampleData);
-
-    expect(response.status).toBe(200);
-    expect(processMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        from: AUTHORIZED_NUMBER,
-        content: 'this is a text message',
-        type: 'text',
-      })
-    );
-    expect(logger.warn).not.toHaveBeenCalled();
-    expect(logger.error).not.toHaveBeenCalled();
-  });
-
-  it('should not process an unauthorized message', async () => {
-    const unauthorizedNumber = '15556664444';
-    const sampleData = {
-      object: 'whatsapp_business_account',
-      entry: [
-        {
-          id: 'entry_id',
-          changes: [
-            {
-              field: 'messages',
-              value: {
-                messaging_product: 'whatsapp',
-                metadata: {
-                  display_phone_number: '16505551111',
-                  phone_number_id: '123456123',
-                },
-                contacts: [
-                  {
-                    profile: {
-                      name: 'test user name',
-                    },
-                    wa_id: unauthorizedNumber, // Unauthorized number
-                  },
-                ],
-                messages: [
-                  {
-                    from: unauthorizedNumber,
-                    id: 'ABGGFlA5Fpa',
-                    timestamp: '1504902988',
-                    type: 'text',
-                    text: {
-                      body: 'this is a text message',
-                    },
-                  },
-                ],
-              },
-            },
-          ],
-        },
-      ],
-    };
-
-    const response = await request(app).post('/webhook').send(sampleData);
-
-    expect(response.status).toBe(200);
-    expect(processMessage).not.toHaveBeenCalled();
-    expect(logger.warn).toHaveBeenCalledWith('Unauthorized message attempt', { from: unauthorizedNumber });
-  });
-
-  it('should handle non-array messages gracefully', async () => {
-    const sampleData = {
-      object: 'whatsapp_business_account',
-      entry: [
-        {
-          id: 'entry_id',
-          changes: [
-            {
-              field: 'messages',
-              value: {
-                messaging_product: 'whatsapp',
-                messages: {}, // Simulate incorrect format
-              },
-            },
-          ],
-        },
-      ],
-    };
-
-    const response = await request(app).post('/webhook').send(sampleData);
-
-    expect(response.status).toBe(200);
-    expect(processMessage).not.toHaveBeenCalled();
-    expect(logger.warn).toHaveBeenCalledWith('Messages field is not an array', { value: sampleData.entry[0].changes[0].value });
-  });
-
-  it('should respond with 404 for non-whatsapp_business_account', async () => {
-    const sampleData = {
-      object: 'some_other_account',
-      entry: [],
-    };
-
-    const response = await request(app).post('/webhook').send(sampleData);
-
-    expect(response.status).toBe(404);
-    expect(logger.warn).toHaveBeenCalledWith('Received non-WhatsApp Business account webhook', { object: 'some_other_account' });
-  });
+        it('should handle errors and respond with 500', async () => {
+            mockRequest.body = {
+                From: config.AUTHORIZED_PHONE_NUMBER,
+                Body: 'Hello',
+            };
+            (processMessage as jest.Mock).mockRejectedValue(new Error('Test error'));
+            await handleTwilioWebhook(mockRequest as Request, mockResponse as Response);
+            expect(logger.error).toHaveBeenCalledWith('Error handling Twilio webhook', expect.any(Object));
+            expect(mockResponse.sendStatus).toHaveBeenCalledWith(500);
+        });
+    });
 });

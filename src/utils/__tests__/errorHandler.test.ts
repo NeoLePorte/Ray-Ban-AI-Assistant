@@ -1,37 +1,59 @@
-import crypto from 'crypto';
+import { AppError, errorHandler } from '../errorHandler';
+import { Request, Response } from 'express';
+import logger from '../logger';
 
-export function generateUniqueId(): string {
-    return crypto.randomUUID();
-}
+// Mock the logger
+jest.mock('../logger', () => ({
+  error: jest.fn(),
+}));
 
-/**
- * Truncates a string to a maximum length, adding "..." if it's too long.
- * @param str - The string to truncate.
- * @param maxLength - The maximum length of the truncated string.
- * @returns The truncated string.
- */
-export function truncateString(str: string | undefined, maxLength: number): string {
-    if (!str) return ''; // Handle undefined or null strings
-    if (str.length <= maxLength) return str;
-    return str.slice(0, maxLength - 3) + '...';
-}
+describe('AppError', () => {
+  it('should create an instance with the correct properties', () => {
+    const message = 'Test error message';
+    const statusCode = 400;
+    const error = new AppError(message, statusCode);
 
+    expect(error).toBeInstanceOf(AppError);
+    expect(error.message).toBe(message);
+    expect(error.statusCode).toBe(statusCode);
+  });
+});
 
+describe('errorHandler', () => {
+  let mockRequest: Partial<Request>;
+  let mockResponse: Partial<Response>;
+  let mockNext: jest.Mock;
 
-export function isValidUrl(string: string): boolean {
-    try {
-        new URL(string);
-        return true;
-    } catch (_) {
-        return false;
-    }
-}
+  beforeEach(() => {
+    mockRequest = {};
+    mockResponse = {
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+    };
+    mockNext = jest.fn();
+  });
 
-export function sanitizeInput(input: string): string {
-    // Basic sanitization, remove HTML tags
-    return input.replace(/<[^>]*>?/gm, '');
-}
+  it('should handle AppError and return correct status and message', () => {
+    const appError = new AppError('Test app error', 400);
+    errorHandler(appError, mockRequest as Request, mockResponse as Response, mockNext);
 
-export function formatDate(date: Date): string {
-    return date.toISOString();
-}
+    expect(logger.error).toHaveBeenCalledWith('Error:', appError);
+    expect(mockResponse.status).toHaveBeenCalledWith(400);
+    expect(mockResponse.json).toHaveBeenCalledWith({
+      status: 'error',
+      message: 'Test app error',
+    });
+  });
+
+  it('should handle non-AppError and return 500 status with generic message', () => {
+    const error = new Error('Test general error');
+    errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
+
+    expect(logger.error).toHaveBeenCalledWith('Error:', error);
+    expect(mockResponse.status).toHaveBeenCalledWith(500);
+    expect(mockResponse.json).toHaveBeenCalledWith({
+      status: 'error',
+      message: 'Internal server error',
+    });
+  });
+});

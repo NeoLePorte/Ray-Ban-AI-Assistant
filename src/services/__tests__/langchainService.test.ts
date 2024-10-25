@@ -22,7 +22,7 @@ jest.mock('langchain/schema/runnable', () => ({
 }));
 
 describe('LangChain Service Functions', () => {
-    const mockModel = 'gpt-4' as LLMType;
+    const mockModel = 'gpt-4o' as LLMType;
     const mockSystemPrompt = 'This is a system prompt.';
     const mockQuery = 'What is AI?';
     const mockImageBase64 = 'base64ImageString';

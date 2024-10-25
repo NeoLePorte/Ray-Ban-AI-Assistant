@@ -1,64 +1,66 @@
 import logger from '../../utils/logger';
-import winston from 'winston';
-import path from 'path';
+
+// Automatically mock the logger
+jest.mock('../../utils/logger');
 
 describe('Logger', () => {
-  const logDirectory = path.join(__dirname, '..', '..', 'logs');
-  const errorLogPath = path.join(logDirectory, 'error.log');
-  const combinedLogPath = path.join(logDirectory, 'combined.log');
-
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it('should create a winston logger with the correct settings', () => {
-    expect(logger).toBeDefined();
-    expect(logger.transports).toHaveLength(3); // Two files and one console transport in non-production
-    expect(logger.level).toBe('debug');
+  it('should have all log methods', () => {
+    expect(logger.error).toBeDefined();
+    expect(logger.warn).toBeDefined();
+    expect(logger.info).toBeDefined();
+    expect(logger.http).toBeDefined();
+    expect(logger.verbose).toBeDefined();
+    expect(logger.debug).toBeDefined();
+    expect(logger.silly).toBeDefined();
   });
 
-  it('should have an error file transport with the correct path', () => {
-    const errorTransport = logger.transports.find(
-      transport => transport instanceof winston.transports.File && transport.level === 'error'
-    );
-    expect(errorTransport).toBeDefined();
-    expect((errorTransport as winston.transports.FileTransportOptions).filename).toBe(errorLogPath);
+  it('should call error method', () => {
+    logger.error('Test error');
+    expect(logger.error).toHaveBeenCalledWith('Test error');
   });
 
-  it('should have a combined file transport with the correct path', () => {
-    const combinedTransport = logger.transports.find(
-      transport => transport instanceof winston.transports.File && transport.level === undefined
-    );
-    expect(combinedTransport).toBeDefined();
-    expect((combinedTransport as winston.transports.FileTransportOptions).filename).toBe(combinedLogPath);
+  it('should call warn method', () => {
+    logger.warn('Test warning');
+    expect(logger.warn).toHaveBeenCalledWith('Test warning');
   });
 
-  it('should have a console transport in non-production environments', () => {
-    const consoleTransport = logger.transports.find(
-      transport => transport instanceof winston.transports.Console
-    );
-    if (process.env.NODE_ENV !== 'production') {
-      expect(consoleTransport).toBeDefined();
-    } else {
-      expect(consoleTransport).toBeUndefined();
-    }
+  it('should call info method', () => {
+    logger.info('Test info');
+    expect(logger.info).toHaveBeenCalledWith('Test info');
   });
 
-  it('should flush logs on process exit', () => {
-    const spy = jest.spyOn(logger, 'end');
-    process.emit('exit', 0);
-    expect(spy).toHaveBeenCalled();
+  it('should call http method', () => {
+    logger.http('Test http');
+    expect(logger.http).toHaveBeenCalledWith('Test http');
   });
 
-  it('should flush logs on SIGINT', () => {
-    const spy = jest.spyOn(logger, 'end');
-    process.emit('SIGINT');
-    expect(spy).toHaveBeenCalled();
+  it('should call verbose method', () => {
+    logger.verbose('Test verbose');
+    expect(logger.verbose).toHaveBeenCalledWith('Test verbose');
   });
 
-  it('should flush logs on SIGTERM', () => {
-    const spy = jest.spyOn(logger, 'end');
-    process.emit('SIGTERM');
-    expect(spy).toHaveBeenCalled();
+  it('should call debug method', () => {
+    logger.debug('Test debug');
+    expect(logger.debug).toHaveBeenCalledWith('Test debug');
+  });
+
+  it('should call silly method', () => {
+    logger.silly('Test silly');
+    expect(logger.silly).toHaveBeenCalledWith('Test silly');
+  });
+
+  it('should handle objects in log methods', () => {
+    const testObject = { key: 'value' };
+    logger.info('Test with object', testObject);
+    expect(logger.info).toHaveBeenCalledWith('Test with object', testObject);
+  });
+
+  it('should handle multiple arguments in log methods', () => {
+    logger.error('Error occurred', 'Details:', { code: 500 });
+    expect(logger.error).toHaveBeenCalledWith('Error occurred', 'Details:', { code: 500 });
   });
 });

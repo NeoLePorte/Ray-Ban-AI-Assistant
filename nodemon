@@ -1,0 +1,5 @@
+{
+  "watch": ["."],
+  "ext": "js,json,Dockerfile",
+  "exec": "./rebuild-docker.sh"
+}

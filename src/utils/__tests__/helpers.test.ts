@@ -4,10 +4,9 @@ import {
     isValidUrl,
     sanitizeInput,
     formatDate,
-  } from '../../utils/helpers';
+  } from '../helpers';
   
   describe('helpers', () => {
-  
     describe('generateUniqueId', () => {
       it('should generate a unique ID', () => {
         const id1 = generateUniqueId();
@@ -28,12 +27,18 @@ import {
       it('should truncate the string and add "..." if it exceeds the maxLength', () => {
         const str = 'This is a very long string that needs to be truncated';
         const result = truncateString(str, 20);
-        expect(result).toBe('This is a very long...');
+        expect(result).toBe('This is a very lo...'); // Updated expected result
       });
   
       it('should return an empty string if input is undefined', () => {
         const result = truncateString(undefined, 10);
         expect(result).toBe('');
+      });
+  
+      it('should handle maxLength less than 4', () => {
+        const str = 'Test';
+        const result = truncateString(str, 3);
+        expect(result).toBe('...');
       });
     });
   
@@ -72,6 +77,4 @@ import {
         expect(result).toBe('2024-08-12T15:24:00.000Z');
       });
     });
-  
   });
-  

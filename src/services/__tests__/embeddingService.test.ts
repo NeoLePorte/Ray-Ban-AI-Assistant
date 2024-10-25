@@ -1,116 +1,147 @@
-// src/__tests__/embeddingService.test.ts
-
-import { OpenAIEmbeddings } from "langchain/embeddings/openai";
-import { getAndStoreEmbedding, findMostSimilarEmbedding, batchEmbedDocuments } from '../../services/embeddingService';
-import { redisService, RedisService } from '../../services/redisService';
+import { getAndStoreEmbedding, findMostSimilarEmbedding, batchEmbedDocuments, cosineSimilarity } from '../embeddingService';
+import { RedisService } from '../redisService';
+import { OpenAIEmbeddings } from 'langchain/embeddings/openai';
 import logger from '../../utils/logger';
+import mockRedisClient from '../../__mocks__/redisClient.mock';
 
-jest.mock("langchain/embeddings/openai");
-jest.mock('../../services/redisService');
+jest.mock('ioredis', () => {
+  return jest.fn().mockImplementation(() => mockRedisClient);
+});
+jest.mock('langchain/embeddings/openai');
+jest.mock('../redisService');
 jest.mock('../../utils/logger');
+jest.mock('../../config', () => ({
+    config: {
+        OPENAI_API_KEY: 'test-api-key',
+        EMBEDDING_MODEL: 'test-model'
+    }
+}));
 
-describe('Embedding Service', () => {
-  const mockEmbedding = [0.1, 0.2, 0.3];
-  const mockUserId = 'user123';
-  const mockMessageId = 'message456';
-  const mockText = 'Sample text';
-  let mockRedisService: jest.Mocked<RedisService>;
+describe('embeddingService', () => {
+    let mockRedisService: jest.Mocked<RedisService>;
+    let mockEmbeddings: jest.Mocked<OpenAIEmbeddings>;
 
-  beforeEach(() => {
-    jest.clearAllMocks();
-    mockRedisService = {
-      storeEmbedding: jest.fn(),
-      getEmbeddings: jest.fn(),
-    } as unknown as jest.Mocked<RedisService>;
-    (redisService as unknown as jest.Mock).mockResolvedValue(mockRedisService);
-  });
+    beforeEach(() => {
+        // Mock RedisService
+        mockRedisService = {
+            storeEmbedding: jest.fn(),
+            getEmbeddings: jest.fn(),
+        } as unknown as jest.Mocked<RedisService>;
+        (RedisService as jest.MockedClass<typeof RedisService>).mockImplementation(() => mockRedisService);
 
-  describe('getAndStoreEmbedding', () => {
-    it('should get embedding and store it in Redis', async () => {
-      (OpenAIEmbeddings.prototype.embedQuery as jest.Mock).mockResolvedValue(mockEmbedding);
-      mockRedisService.storeEmbedding.mockResolvedValue(undefined);
-
-      const result = await getAndStoreEmbedding(mockUserId, mockMessageId, mockText);
-
-      expect(OpenAIEmbeddings.prototype.embedQuery).toHaveBeenCalledWith(mockText);
-      expect(mockRedisService.storeEmbedding).toHaveBeenCalledWith(mockUserId, mockMessageId, mockEmbedding);
-      expect(result).toEqual(mockEmbedding);
+        // Mock OpenAIEmbeddings
+        mockEmbeddings = {
+            embedQuery: jest.fn(),
+            embedDocuments: jest.fn(),
+        } as unknown as jest.Mocked<OpenAIEmbeddings>;
+        (OpenAIEmbeddings as jest.Mock).mockImplementation(() => mockEmbeddings);
     });
 
-    it('should log and throw error if embedding fails', async () => {
-      const mockError = new Error('Embedding failed');
-      (OpenAIEmbeddings.prototype.embedQuery as jest.Mock).mockRejectedValue(mockError);
-
-      await expect(getAndStoreEmbedding(mockUserId, mockMessageId, mockText)).rejects.toThrow('Embedding failed');
-      expect(logger.error).toHaveBeenCalledWith('Error getting and storing embedding', expect.objectContaining({
-        error: mockError,
-        userId: mockUserId,
-        messageId: mockMessageId
-      }));
-    });
-  });
-
-  describe('findMostSimilarEmbedding', () => {
-    it('should find the most similar embedding', async () => {
-      const mockStoredEmbeddings = {
-        'message1': [0.1, 0.2, 0.3],
-        'message2': [0.4, 0.5, 0.6],
-        'message3': [0.7, 0.8, 0.9]
-      };
-      mockRedisService.getEmbeddings.mockResolvedValue(mockStoredEmbeddings);
-
-      const targetEmbedding = [0.39, 0.49, 0.59];
-      const result = await findMostSimilarEmbedding(mockUserId, targetEmbedding);
-
-      expect(mockRedisService.getEmbeddings).toHaveBeenCalledWith(mockUserId);
-      expect(result).toEqual({
-        similarity: expect.any(Number),
-        messageId: 'message2'
-      });
+    afterEach(() => {
+        jest.clearAllMocks();
     });
 
-    it('should log and throw error if finding similar embedding fails', async () => {
-      const mockError = new Error('Redis retrieval failed');
-      mockRedisService.getEmbeddings.mockRejectedValue(mockError);
+    describe('getAndStoreEmbedding', () => {
+        it('should store the embedding in Redis and return it', async () => {
+            const userId = 'user-1';
+            const messageId = 'msg-1';
+            const text = 'Hello world';
+            const mockEmbedding = [0.1, 0.2, 0.3];
+            
+            mockEmbeddings.embedQuery.mockResolvedValue(mockEmbedding);
 
-      await expect(findMostSimilarEmbedding(mockUserId, [0.1, 0.2, 0.3])).rejects.toThrow('Redis retrieval failed');
-      expect(logger.error).toHaveBeenCalledWith('Error finding most similar embedding', expect.objectContaining({
-        error: mockError,
-        userId: mockUserId
-      }));
+            const result = await getAndStoreEmbedding(userId, messageId, text);
+
+            expect(result).toEqual(mockEmbedding);
+            expect(mockEmbeddings.embedQuery).toHaveBeenCalledWith(text);
+            expect(mockRedisService.storeEmbedding).toHaveBeenCalledWith(userId, messageId, mockEmbedding);
+        });
+
+        it('should log an error and throw if embedding fails', async () => {
+            const userId = 'user-1';
+            const messageId = 'msg-1';
+            const text = 'Hello world';
+            const mockError = new Error('Embedding Error');
+            
+            mockEmbeddings.embedQuery.mockRejectedValue(mockError);
+
+            await expect(getAndStoreEmbedding(userId, messageId, text)).rejects.toThrow(mockError);
+            expect(logger.error).toHaveBeenCalledWith('Error getting and storing embedding', { error: mockError, userId, messageId });
+        });
     });
-  });
 
-  describe('batchEmbedDocuments', () => {
-    it('should batch embed documents', async () => {
-      const mockTexts = ['text1', 'text2', 'text3'];
-      const mockEmbeddings = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6], [0.7, 0.8, 0.9]];
-      (OpenAIEmbeddings.prototype.embedDocuments as jest.Mock).mockResolvedValue(mockEmbeddings);
+    describe('findMostSimilarEmbedding', () => {
+        it('should return the most similar embedding and its messageId', async () => {
+            const userId = 'user-1';
+            const targetEmbedding = [0.1, 0.2, 0.3];
+            const storedEmbeddings = {
+                'msg-1': [0.1, 0.2, 0.3],
+                'msg-2': [0.4, 0.5, 0.6]
+            };
+            
+            mockRedisService.getEmbeddings.mockResolvedValue(storedEmbeddings);
 
-      const result = await batchEmbedDocuments(mockTexts);
+            const result = await findMostSimilarEmbedding(userId, targetEmbedding);
 
-      expect(OpenAIEmbeddings.prototype.embedDocuments).toHaveBeenCalledWith(mockTexts);
-      expect(result).toEqual(mockEmbeddings);
+            expect(result).toEqual({ similarity: 1, messageId: 'msg-1' });
+            expect(mockRedisService.getEmbeddings).toHaveBeenCalledWith(userId);
+        });
+
+        it('should log an error and throw if retrieval fails', async () => {
+            const userId = 'user-1';
+            const targetEmbedding = [0.1, 0.2, 0.3];
+            const mockError = new Error('Redis Error');
+            
+            mockRedisService.getEmbeddings.mockRejectedValue(mockError);
+
+            await expect(findMostSimilarEmbedding(userId, targetEmbedding)).rejects.toThrow(mockError);
+            expect(logger.error).toHaveBeenCalledWith('Error finding most similar embedding', { error: mockError, userId });
+        });
     });
 
-    it('should log and throw error if batch embedding fails', async () => {
-      const mockError = new Error('Batch embedding failed');
-      (OpenAIEmbeddings.prototype.embedDocuments as jest.Mock).mockRejectedValue(mockError);
+    describe('batchEmbedDocuments', () => {
+        it('should embed documents and return their embeddings', async () => {
+            const texts = ['Hello', 'world'];
+            const mockEmbeddingsArray = [[0.1, 0.2], [0.3, 0.4]];
+            
+            mockEmbeddings.embedDocuments.mockResolvedValue(mockEmbeddingsArray);
 
-      await expect(batchEmbedDocuments(['text1', 'text2'])).rejects.toThrow('Batch embedding failed');
-      expect(logger.error).toHaveBeenCalledWith('Error batch embedding documents', expect.objectContaining({
-        error: mockError
-      }));
+            const result = await batchEmbedDocuments(texts);
+
+            expect(result).toEqual(mockEmbeddingsArray);
+            expect(mockEmbeddings.embedDocuments).toHaveBeenCalledWith(texts);
+        });
+
+        it('should log an error and throw if embedding documents fails', async () => {
+            const texts = ['Hello', 'world'];
+            const mockError = new Error('Batch Embedding Error');
+            
+            mockEmbeddings.embedDocuments.mockRejectedValue(mockError);
+
+            await expect(batchEmbedDocuments(texts)).rejects.toThrow(mockError);
+            expect(logger.error).toHaveBeenCalledWith('Error batch embedding documents', { error: mockError });
+        });
     });
-  });
 
-  // Optional: Test for cosineSimilarity function if it's exported
-  // describe('cosineSimilarity', () => {
-  //   it('should calculate cosine similarity correctly', () => {
-  //     const a = [1, 2, 3];
-  //     const b = [4, 5, 6];
-  //     const result = cosineSimilarity(a, b);
-  //     expect(result).toBeCloseTo(0.9746318461970762, 6);
-  //   });
-  // });
+    describe('cosineSimilarity', () => {
+        it('should calculate and return the correct cosine similarity', () => {
+            const vectorA = [1, 2, 3];
+            const vectorB = [1, 2, 3];
+            const expectedSimilarity = 1; // because they are identical vectors
+
+            const result = cosineSimilarity(vectorA, vectorB);
+
+            expect(result).toBeCloseTo(expectedSimilarity, 5);
+        });
+
+        it('should handle orthogonal vectors', () => {
+            const vectorA = [1, 0, 0];
+            const vectorB = [0, 1, 0];
+            const expectedSimilarity = 0; // because they are orthogonal
+
+            const result = cosineSimilarity(vectorA, vectorB);
+
+            expect(result).toBeCloseTo(expectedSimilarity, 5);
+        });
+    });
 });

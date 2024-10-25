@@ -1,12 +1,13 @@
-import { Redis } from 'ioredis';
+import Redis from 'ioredis';
 import { RedisVectorStore } from "langchain/vectorstores/redis";
 import { OpenAIEmbeddings } from "langchain/embeddings/openai";
 import { Document } from "langchain/document";
 import { config } from '../config';
 import logger from '../utils/logger';
-import { Conversation } from '../models/conversation';
+//import { AppError } from '../utils/errorHandler';
+import { Conversation, LLMType } from '../models/conversation';
 
-export const SUPPORTED_MODELS: string[] = [
+export const SUPPORTED_MODELS: LLMType[] = [
     'gpt-4o',
     'gpt-4o-mini',
     'claude-3-5-sonnet-20240620',
@@ -45,40 +46,40 @@ class RedisClientWrapper {
     }
 }
 
-class RedisService {
+export class RedisService {
     private redis: Redis;
-    private vectorStore!: RedisVectorStore;
+    private vectorStore: RedisVectorStore;
     private documentCount: number = 0;
 
-    private constructor() {
-        this.redis = new Redis(config.REDIS_URL);
+    constructor(redisClient: Redis, vectorStore: RedisVectorStore) {
+        this.redis = redisClient;
+        this.vectorStore = vectorStore;
+    }
+
+    public static async createRedisClient(): Promise<Redis> {
+        return new Redis(config.REDIS_URL);
+    }
+
+    public static async createVectorStore(redis: Redis): Promise<RedisVectorStore> {
+        const embeddings = new OpenAIEmbeddings({ openAIApiKey: config.OPENAI_API_KEY });
+        const wrappedClient = new RedisClientWrapper(redis);
+        return new RedisVectorStore(embeddings, {
+            redisClient: wrappedClient as any,
+            indexName: "ray-ban-ai-assistant",
+            keyPrefix: "doc:",
+        });
     }
 
     public static async initialize(): Promise<RedisService> {
-        const service = new RedisService();
+        const redisClient = await RedisService.createRedisClient();
+        const vectorStore = await RedisService.createVectorStore(redisClient);
+        const service = new RedisService(redisClient, vectorStore);
         try {
-            await service.initVectorStore();
             await service.loadDocumentCount();
             logger.info('Redis service initialized successfully');
             return service;
         } catch (error) {
             logger.error('Failed to initialize Redis service', { error });
-            throw error;
-        }
-    }
-
-    private async initVectorStore() {
-        try {
-            const embeddings = new OpenAIEmbeddings({ openAIApiKey: config.OPENAI_API_KEY });
-            const wrappedClient = new RedisClientWrapper(this.redis);
-            this.vectorStore = new RedisVectorStore(embeddings, {
-                redisClient: wrappedClient as any,
-                indexName: "ray-ban-ai-assistant",
-                keyPrefix: "doc:",
-            });
-            logger.info('Vector store initialized successfully');
-        } catch (error) {
-            logger.error('Failed to initialize vector store', { error });
             throw error;
         }
     }
@@ -114,7 +115,11 @@ class RedisService {
                 const messageId = key.split(':').pop();
                 const embedding = await this.redis.get(key);
                 if (embedding && messageId) {
-                    embeddings[messageId] = JSON.parse(embedding);
+                    try {
+                        embeddings[messageId] = JSON.parse(embedding);
+                    } catch (parseError) {
+                        logger.error('Error parsing embedding JSON', { error: parseError, userId, messageId });
+                    }
                 }
             }
 
@@ -126,7 +131,7 @@ class RedisService {
         }
     }
 
-    private async updateDocumentCount(delta: number) {
+    public async updateDocumentCount(delta: number) {
         this.documentCount += delta;
         await this.redis.set('document_count', this.documentCount.toString());
     }
@@ -155,7 +160,7 @@ class RedisService {
                 return {
                     id: results[0].metadata.conversationId as string,
                     userId: userId,
-                    model: SUPPORTED_MODELS[0],
+                    model: SUPPORTED_MODELS.includes(conversation.model as LLMType) ? conversation.model : SUPPORTED_MODELS[0],
                     messages: conversation,
                     createdAt: new Date(),
                     updatedAt: new Date(),
@@ -268,4 +273,4 @@ class RedisService {
 }
 
 const redisServicePromise = RedisService.initialize();
-export { redisServicePromise as redisService, RedisService };
+export { redisServicePromise as redisService };

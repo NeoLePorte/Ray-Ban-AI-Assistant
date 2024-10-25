@@ -45,14 +45,14 @@ Create a .env file in the root directory and configure the following variables:
 plaintext
 Copy code
 PORT=3000                           # Port on which the app will run
-WHATSAPP_TOKEN=your_whatsapp_token  # Your WhatsApp Business API token
-WHATSAPP_PHONE_NUMBER_ID=your_phone_number_id
-WHATSAPP_INCOMING_PHONE_NUMBER=your_incoming_phone_number
+MESSENGER_PAGE_ACCESS_TOKEN=your_page_access_token  # Your Messenger Page Access Token
+MESSENGER_APP_SECRET=your_app_secret  # Your Messenger App Secret
+MESSENGER_VERIFY_TOKEN=your_verify_token  # Your Messenger Verify Token
+MESSENGER_PAGE_ID=your_page_id  # Your Messenger Page ID
 OPENAI_API_KEY=your_openai_api_key  # OpenAI API key for accessing GPT models
 ANTHROPIC_KEY=your_anthropic_key    # Anthropic API key for accessing Claude models
 REDIS_URL=redis://localhost:6379    # Redis server URL
-WHATSAPP_VERIFY_TOKEN=your_verify_token
-AUTHORIZED_WHATSAPP_NUMBER=your_authorized_number
+AUTHORIZED_MESSENGER_USER_ID=your_authorized_user_id  # Authorized Messenger User ID (keep this secret)
 REDIS_PASSWORD=your_redis_password  # Password for Redis if applicable
 Build and run Docker containers:
 

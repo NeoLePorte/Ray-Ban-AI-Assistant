@@ -1,123 +1,150 @@
-import { Message, TextMessage, ImageMessage, DocumentMessage, isTextMessage, isImageMessage, isDocumentMessage } from '../models/message';
-import { Conversation, LLMType, getModelFromAlias, SUPPORTED_MODELS, createNewConversation } from '../models/conversation';
-import { generateAnswer, analyzeImageAndRetrieveInfo, getLocationBasedInfo, addDocumentToVectorStore, addPDFToVectorStore, addWordToVectorStore, addExcelToVectorStore } from '../services/ragService';
+import { Message, TextMessage } from '../models/message';
+import { Conversation, LLMType } from '../models/conversation';
+import { sendMMS } from '../services/twilioService';
+import { downloadMedia, encodeFileToBase64 } from '../services/mediaService';
 import { redisService } from '../services/redisService';
-import { sendWhatsappResponse } from '../services/whatsappService';
+import { generateAnswer, analyzeImageAndRetrieveInfo, getLocationBasedInfo } from '../services/ragService';
 import logger from '../utils/logger';
 import { AppError } from '../utils/errorHandler';
+import { generateUniqueId, truncateString } from '../utils/helpers';
 
-export async function processMessage(message: Message): Promise<void> {
-    logger.info(`Processing message`, { messageId: message.id, messageType: message.type, userId: message.from });
+const MAX_RESPONSE_LENGTH = 2000;
 
-    if (message.role !== 'user') {
-        logger.info(`Ignoring non-user message`, { messageId: message.id });
-        return;
-    }
+export async function processMessage(senderId: string, receivedMessage: any): Promise<void> {
+    logger.info(`Processing message`, { senderId, messageType: receivedMessage.type });
 
-    const redis = await redisService;
-    let conversation = await getOrCreateConversation(message.from);
+    let conversation = await getOrCreateConversation(senderId);
 
     try {
         let response: string;
 
-        if (isTextMessage(message)) {
-            response = await handleTextMessage(message, conversation);
-        } else if (isImageMessage(message)) {
-            response = await handleImageMessage(message, conversation);
-        } else if (isDocumentMessage(message)) {
-            response = await handleDocumentMessage(message, conversation);
+        if (receivedMessage.text) {
+            response = await handleTextMessage(senderId, receivedMessage.text, conversation);
+        } else if (receivedMessage.mediaUrls && receivedMessage.mediaUrls.length > 0) {
+            response = await handleMediaMessage(senderId, receivedMessage.mediaUrls, conversation);
         } else {
-            logger.warn(`Unsupported message type`, { message });
-            throw new AppError(`Unsupported message type: ${JSON.stringify(message)}`, 400);
+            logger.warn(`Unsupported message type`, { message: receivedMessage });
+            throw new AppError(`Unsupported message type`, 400);
         }
 
-        await updateConversation(conversation, message, response);
-        await sendWhatsappResponse(message.from, response);
+        await updateConversation(conversation, receivedMessage, response);
+        await sendMMS(senderId, truncateString(response, MAX_RESPONSE_LENGTH));
     } catch (error) {
-        logger.error('Error processing message', { error, messageId: message.id, userId: message.from });
+        logger.error('Error processing message', { error, senderId });
         const errorMessage = error instanceof AppError ? `Error: ${error.message}` : 'Sorry, I encountered an error while processing your message.';
-        await sendWhatsappResponse(message.from, errorMessage);
+        await sendMMS(senderId, errorMessage);
     }
 }
 
-async function handleTextMessage(message: TextMessage, conversation: Conversation): Promise<string> {
-    const query = message.content.trim().toLowerCase();
+async function handleTextMessage(senderId: string, text: string, conversation: Conversation): Promise<string> {
+    const query = text.trim().toLowerCase();
 
     if (query.startsWith('switch to ')) {
-        return handleModelSwitch(query.slice(10).trim(), conversation);
+        const newLlmType = query.replace('switch to ', '').replace(/\s+/g, '').toLowerCase() as LLMType;
+        if (newLlmType === 'gpt-4o' || newLlmType === 'claude-3-opus-20240229') {
+            logger.info(`Switching LLM type`, { senderId, oldLlmType: conversation.model, newLlmType });
+            conversation.model = newLlmType;
+            return `Switched to ${newLlmType}. How can I assist you?`;
+        } else {
+            logger.warn('Invalid LLM type specified', { senderId, specifiedLlmType: newLlmType });
+            throw new AppError('Invalid AI model specified. Please choose "gpt-4o" or "claude-3-opus-20240229".', 400);
+        }
     }
 
-    if (query.startsWith('location:')) {
-        const [location, ...queryParts] = query.slice(9).split(',').map(part => part.trim());
-        return await getLocationBasedInfo(location, queryParts.join(' '), conversation.model);
+    if (query.startsWith('in ') && query.includes(',')) {
+        const parts = query.split(',');
+        const location = parts[0].replace('in ', '').trim();
+        const actualQuery = parts.slice(1).join(',').trim();
+        return await getLocationBasedInfo(location, actualQuery, conversation.model);
     }
 
-    // Update user context if the message starts with "context:"
-    if (query.startsWith('context:')) {
-        conversation.userContext = message.content.slice(8).trim();
-        const redis = await redisService;
-        await redis.saveConversation(conversation.userId, conversation);
-        return "User context updated successfully.";
-    }
-
-    return await generateAnswer(message.content, conversation.model, conversation.userContext);
+    return await generateAnswer(query, conversation.model, conversation.userContext);
 }
 
-async function handleImageMessage(message: ImageMessage, conversation: Conversation): Promise<string> {
-    return await analyzeImageAndRetrieveInfo(message.imageUrl, message.caption || "What's in this image?", conversation.model);
+async function handleMediaMessage(senderId: string, mediaUrls: string[], conversation: Conversation): Promise<string> {
+    const responses = await Promise.all(mediaUrls.map(async (url) => {
+        const imagePath = await downloadMedia(url, 'image');
+        if (!imagePath) {
+            logger.error('Failed to download image', { url });
+            return "Failed to download an image.";
+        }
+
+        let imageBase64: string;
+        try {
+            imageBase64 = await encodeFileToBase64(imagePath);
+        } catch (error) {
+            logger.error('Failed to encode image', { error, imagePath });
+            return "Failed to process an image.";
+        }
+
+        const query = "What's in this image?";
+        return await analyzeImageAndRetrieveInfo(imageBase64, query, conversation.model);
+    }));
+
+    return responses.join('\n\n');
 }
 
-async function handleDocumentMessage(message: DocumentMessage, conversation: Conversation): Promise<string> {
-    switch (message.mimeType) {
-        case 'application/pdf':
-            await addPDFToVectorStore(message.documentBuffer, { userId: conversation.userId });
-            break;
-        case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
-        case 'application/msword':
-            await addWordToVectorStore(message.documentBuffer, { userId: conversation.userId });
-            break;
-        case 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
-        case 'application/vnd.ms-excel':
-            await addExcelToVectorStore(message.documentBuffer, { userId: conversation.userId });
-            break;
-        default:
-            await addDocumentToVectorStore(message.content, { userId: conversation.userId, mimeType: message.mimeType });
-    }
-    return "Document processed and added to your knowledge base. You can now ask questions about its content.";
-}
-
-function handleModelSwitch(modelAlias: string, conversation: Conversation): string {
-    const newModel = getModelFromAlias(modelAlias);
-    if (newModel) {
-        conversation.model = newModel;
-        return `Switched to ${newModel}. How can I assist you?`;
-    } else {
-        const validModels = SUPPORTED_MODELS.join(', ');
-        throw new AppError(`Invalid model. Available models are: ${validModels}`, 400);
-    }
-}
-
-async function getOrCreateConversation(userId: string): Promise<Conversation> {
+async function getOrCreateConversation(senderId: string): Promise<Conversation> {
     const redis = await redisService;
-    let conversation = await redis.getConversation(userId);
+    let conversation = await redis.getConversation(senderId);
     if (!conversation) {
-        conversation = createNewConversation(userId);
-        await redis.saveConversation(userId, conversation);
+        logger.info('No existing conversation found, creating new one', { senderId });
+        conversation = createNewConversation(senderId);
     }
     return conversation;
 }
 
-async function updateConversation(conversation: Conversation, userMessage: Message, assistantResponse: string): Promise<void> {
+function createNewConversation(senderId: string): Conversation {
+    return {
+        id: generateUniqueId(),
+        userId: senderId,
+        model: 'gpt-4o' as LLMType,
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        isArchived: false,
+        userContext: ''
+    };
+}
+
+async function updateConversation(conversation: Conversation, receivedMessage: any, assistantResponse: string): Promise<void> {
+    let userMessage: Message;
+
+    if (receivedMessage.text) {
+        userMessage = {
+            id: generateUniqueId(),
+            type: 'text',
+            timestamp: Date.now(),
+            text: receivedMessage.text
+        };
+    } else if (receivedMessage.mediaUrl) {
+        userMessage = {
+            id: generateUniqueId(),
+            type: 'image',
+            timestamp: Date.now(),
+            attachments: [{
+                type: 'image',
+                payload: {
+                    url: receivedMessage.mediaUrl
+                }
+            }]
+        };
+    } else {
+        throw new Error('Unsupported message type');
+    }
+
     conversation.messages.push(userMessage);
-    conversation.messages.push({
-        id: Date.now().toString(),
-        role: 'assistant',
+
+    const assistantMessage: TextMessage = {
+        id: generateUniqueId(),
         type: 'text',
-        content: assistantResponse,
-        timestamp: new Date(),
-        from: 'assistant'
-    });
+        timestamp: Date.now(),
+        text: assistantResponse
+    };
+
+    conversation.messages.push(assistantMessage);
     conversation.updatedAt = new Date();
+
     const redis = await redisService;
     await redis.saveConversation(conversation.userId, conversation);
 }

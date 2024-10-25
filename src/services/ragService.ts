@@ -18,7 +18,6 @@ const textSplitter = new RecursiveCharacterTextSplitter({
   chunkOverlap: 200,
 });
 
-// Function to add a document to the Redis-backed vector store
 export async function addDocumentToVectorStore(content: string, metadata: Record<string, any>): Promise<void> {
   try {
     const docs = await textSplitter.createDocuments([content], [metadata]);
@@ -32,7 +31,6 @@ export async function addDocumentToVectorStore(content: string, metadata: Record
   }
 }
 
-// Function to handle adding a PDF buffer to the vector store
 export async function addPDFToVectorStore(pdfBuffer: Buffer, metadata: Record<string, any>): Promise<void> {
   try {
     const tempFilePath = path.join(os.tmpdir(), `${Date.now()}_temp.pdf`);
@@ -54,7 +52,6 @@ export async function addPDFToVectorStore(pdfBuffer: Buffer, metadata: Record<st
   }
 }
 
-// Function to handle adding a Word document buffer to the vector store
 export async function addWordToVectorStore(docBuffer: Buffer, metadata: Record<string, any>): Promise<void> {
   try {
     const result = await mammoth.extractRawText({ buffer: docBuffer });
@@ -67,7 +64,6 @@ export async function addWordToVectorStore(docBuffer: Buffer, metadata: Record<s
   }
 }
 
-// Function to handle adding an Excel document buffer to the vector store
 export async function addExcelToVectorStore(excelBuffer: Buffer, metadata: Record<string, any>): Promise<void> {
   try {
     const workbook = new ExcelJS.Workbook();
@@ -90,7 +86,6 @@ export async function addExcelToVectorStore(excelBuffer: Buffer, metadata: Recor
   }
 }
 
-// Function to retrieve relevant documents from the Redis-backed vector store
 export async function retrieveRelevantDocuments(query: string, k: number = 3): Promise<Document[]> {
   try {
     const redis = await redisService;
@@ -103,7 +98,6 @@ export async function retrieveRelevantDocuments(query: string, k: number = 3): P
   }
 }
 
-// Function to generate an answer based on the retrieved documents and LLM
 export async function generateAnswer(query: string, model: LLMType, userContext?: string): Promise<string> {
   const relevantDocs = await retrieveRelevantDocuments(query);
   const context = relevantDocs.map(doc => doc.pageContent).join('\n\n');
@@ -119,7 +113,6 @@ Answer:`;
   return await getLangChainResponse(query, model, systemPrompt);
 }
 
-// Function to analyze an image and retrieve information based on the analysis and documents
 export async function analyzeImageAndRetrieveInfo(imageUrl: string, query: string, model: LLMType): Promise<string> {
   const imageAnalysis = await getLangChainImageResponse(query, imageUrl, model, "Analyze this image and describe what you see.");
   const relevantDocs = await retrieveRelevantDocuments(imageAnalysis);
@@ -137,7 +130,6 @@ Response:`;
   return await getLangChainResponse(query, model, systemPrompt);
 }
 
-// Function to provide location-based information
 export async function getLocationBasedInfo(location: string, query: string, model: LLMType): Promise<string> {
   const relevantDocs = await retrieveRelevantDocuments(`${location} ${query}`);
   const context = relevantDocs.map(doc => doc.pageContent).join('\n\n');
@@ -154,11 +146,10 @@ Response:`;
   return await getLangChainResponse(query, model, systemPrompt);
 }
 
-// Function to clear the Redis-backed vector store
 export async function clearVectorStore(): Promise<void> {
   try {
     const redis = await redisService;
-    await redis.deleteConversation('ALL'); // Assuming this clears all documents
+    await redis.deleteAllDocuments();
     documentCount = 0;
     logger.info('Vector store cleared. Document count reset to 0.');
   } catch (error) {
@@ -167,7 +158,6 @@ export async function clearVectorStore(): Promise<void> {
   }
 }
 
-// Function to get the current size of the vector store
 export function getVectorStoreSize(): number {
   return documentCount;
 }

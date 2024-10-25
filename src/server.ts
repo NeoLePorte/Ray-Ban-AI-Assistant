@@ -1,5 +1,5 @@
 import express from 'express';
-import webhookController from './controllers/webhookController';
+import { handleTwilioWebhook } from './controllers/webhookController';
 import { errorHandler } from './utils/errorHandler';
 import logger from './utils/logger';
 import { config } from './config';
@@ -15,7 +15,8 @@ app.get('/', (_, res) => {
     res.send('Ray-Ban AI Assistant is running!');
 });
 
-app.use('/webhook', webhookController);
+// Webhook routes
+app.post('/twilio-webhook', handleTwilioWebhook);
 
 // Error handling
 app.use(errorHandler);

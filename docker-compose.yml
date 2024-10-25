@@ -5,16 +5,8 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=development
-      - LOG_LEVEL=info
-      - REDIS_URL=${REDIS_URL}
-      - WHATSAPP_TOKEN=${WHATSAPP_TOKEN}
-      - WHATSAPP_VERIFY_TOKEN=${WHATSAPP_VERIFY_TOKEN}
-      - WHATSAPP_PHONE_NUMBER_ID=${WHATSAPP_PHONE_NUMBER_ID}
-      - WHATSAPP_INCOMING_PHONE_NUMBER=${WHATSAPP_INCOMING_PHONE_NUMBER}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_KEY=${ANTHROPIC_KEY}
-      - AUTHORIZED_WHATSAPP_NUMBER=${AUTHORIZED_WHATSAPP_NUMBER}
-      - MEDIA_STORAGE_PATH=/usr/src/app/tmp
+    env_file:
+      - .env.test  # Use .env.test for development
     volumes:
       - ./src:/usr/src/app/src
       - ./nodemon.json:/usr/src/app/nodemon.json
@@ -27,9 +19,11 @@ services:
 
   redis:
     image: redis:alpine
+    command: redis-server --requirepass ${REDIS_PASSWORD}
     environment:
       - REDIS_PASSWORD=${REDIS_PASSWORD}
-    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
+    ports:
+      - "6379:6379"
     networks:
       - app-network
 

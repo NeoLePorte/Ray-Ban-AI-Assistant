@@ -1,45 +1,55 @@
 import winston from 'winston';
 import path from 'path';
+import 'winston-daily-rotate-file';
+import fs from 'fs';
 
 const logDirectory = path.join(__dirname, '..', 'logs');
 
+// Ensure log directory exists
+if (!fs.existsSync(logDirectory)) {
+    fs.mkdirSync(logDirectory, { recursive: true });
+}
+
+const fileTransport = new winston.transports.DailyRotateFile({
+    filename: path.join(logDirectory, '%DATE%-combined.log'),
+    datePattern: 'YYYY-MM-DD',
+    maxSize: '20m',
+    maxFiles: '14d',
+});
+
+const errorFileTransport = new winston.transports.DailyRotateFile({
+    filename: path.join(logDirectory, '%DATE%-error.log'),
+    datePattern: 'YYYY-MM-DD',
+    level: 'error',
+    maxSize: '20m',
+    maxFiles: '14d',
+});
+
 const logger = winston.createLogger({
-    level: 'debug',  // Use 'debug' level for more detailed logs
+    level: process.env.LOG_LEVEL || 'info',
     format: winston.format.combine(
         winston.format.timestamp({
             format: 'YYYY-MM-DD HH:mm:ss',
         }),
         winston.format.errors({ stack: true }),
         winston.format.splat(),
-        winston.format.json(),
+        winston.format.json()
     ),
     defaultMeta: { service: 'ray-ban-ai-assistant' },
     transports: [
-        new winston.transports.File({ filename: path.join(logDirectory, 'error.log'), level: 'error' }),
-        new winston.transports.File({ filename: path.join(logDirectory, 'combined.log') }),
-    ],
-});
-
-// Add console transport in non-production environments
-if (process.env.NODE_ENV !== 'production') {
-    logger.add(
         new winston.transports.Console({
             format: winston.format.combine(
                 winston.format.colorize(),
-                winston.format.simple(),
+                winston.format.simple()
             ),
         }),
-    );
-}
+    ],
+});
 
-// Function to ensure logs are flushed
-function flushLogs() {
-    logger.end(); // Flush all logs
+// Only add file transports in non-test environments
+if (process.env.NODE_ENV !== 'test') {
+    logger.add(fileTransport);
+    logger.add(errorFileTransport);
 }
-
-// Call flushLogs on process exit
-process.on('exit', flushLogs);
-process.on('SIGINT', flushLogs);
-process.on('SIGTERM', flushLogs);
 
 export default logger;
