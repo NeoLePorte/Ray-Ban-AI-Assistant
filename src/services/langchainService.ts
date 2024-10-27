@@ -1,11 +1,11 @@
 import { ChatOpenAI } from "@langchain/openai";
 import { ChatAnthropic } from "@langchain/anthropic";
-import { BaseLanguageModel } from "langchain/base_language";
-import { ChatPromptTemplate } from "langchain/prompts";
-import { StringOutputParser } from "langchain/schema/output_parser";
-import { RunnableSequence } from "langchain/schema/runnable";
-import { StructuredOutputParser } from "langchain/output_parsers";
-import { BaseCallbackHandler } from "langchain/callbacks";
+import { BaseLanguageModel } from "@langchain/core/language_models/base";
+import { ChatPromptTemplate } from "@langchain/core/prompts";
+import { StringOutputParser } from "@langchain/core/output_parsers";
+import { RunnableSequence } from "@langchain/core/runnables";
+import { StructuredOutputParser } from "@langchain/core/output_parsers";
+import { BaseCallbackHandler } from "@langchain/core/callbacks/base";
 import { z } from "zod";
 import { config } from '../config';
 import { LLMType, isSupportedModel } from '../models/conversation';

@@ -1,276 +1,204 @@
-import Redis from 'ioredis';
-import { RedisVectorStore } from "langchain/vectorstores/redis";
-import { OpenAIEmbeddings } from "langchain/embeddings/openai";
-import { Document } from "langchain/document";
-import { config } from '../config';
+import { RedisVectorStore } from 'langchain/vectorstores/redis';
+import { OpenAIEmbeddings } from 'langchain/embeddings/openai';
+import { createClient, RedisClientType } from 'redis';
 import logger from '../utils/logger';
-//import { AppError } from '../utils/errorHandler';
 import { Conversation, LLMType } from '../models/conversation';
+import { Document } from 'langchain/document';
 
 export const SUPPORTED_MODELS: LLMType[] = [
     'gpt-4o',
     'gpt-4o-mini',
-    'claude-3-5-sonnet-20240620',
+    'claude-3-5-sonnet-20241022',
     'claude-3-opus-20240229'
 ];
 
-class RedisClientWrapper {
-    private client: Redis;
+export class RedisClientWrapper {
+    private client: RedisClientType;
+    private vectorStore: RedisVectorStore | null = null;
+    private embeddings: OpenAIEmbeddings;
+    private initialized: boolean = false;
 
-    constructor(client: Redis) {
-        this.client = client;
-    }
+    constructor() {
+        this.client = createClient({
+            url: process.env.REDIS_URL,
+            password: process.env.REDIS_PASSWORD
+        });
 
-    async ft_create(...args: any[]): Promise<any> {
-        return this.client.call('FT.CREATE', ...args);
-    }
+        this.client.on('error', (err) => {
+            logger.error('Redis Client Error', { error: err.message });
+        });
 
-    async ft_search(...args: any[]): Promise<any> {
-        return this.client.call('FT.SEARCH', ...args);
-    }
-
-    async ft_info(...args: any[]): Promise<any> {
-        return this.client.call('FT.INFO', ...args);
-    }
-
-    async json_set(...args: any[]): Promise<any> {
-        return this.client.call('JSON.SET', ...args);
-    }
-
-    async json_get(...args: any[]): Promise<any> {
-        return this.client.call('JSON.GET', ...args);
-    }
-
-    async json_del(...args: any[]): Promise<any> {
-        return this.client.call('JSON.DEL', ...args);
-    }
-}
-
-export class RedisService {
-    private redis: Redis;
-    private vectorStore: RedisVectorStore;
-    private documentCount: number = 0;
-
-    constructor(redisClient: Redis, vectorStore: RedisVectorStore) {
-        this.redis = redisClient;
-        this.vectorStore = vectorStore;
-    }
-
-    public static async createRedisClient(): Promise<Redis> {
-        return new Redis(config.REDIS_URL);
-    }
-
-    public static async createVectorStore(redis: Redis): Promise<RedisVectorStore> {
-        const embeddings = new OpenAIEmbeddings({ openAIApiKey: config.OPENAI_API_KEY });
-        const wrappedClient = new RedisClientWrapper(redis);
-        return new RedisVectorStore(embeddings, {
-            redisClient: wrappedClient as any,
-            indexName: "ray-ban-ai-assistant",
-            keyPrefix: "doc:",
+        // Ensure we're using text-embedding-3-small model consistently
+        this.embeddings = new OpenAIEmbeddings({
+            modelName: 'text-embedding-3-small'
         });
     }
 
-    public static async initialize(): Promise<RedisService> {
-        const redisClient = await RedisService.createRedisClient();
-        const vectorStore = await RedisService.createVectorStore(redisClient);
-        const service = new RedisService(redisClient, vectorStore);
+    async initialize() {
+        if (this.initialized) return;
+        
         try {
-            await service.loadDocumentCount();
-            logger.info('Redis service initialized successfully');
-            return service;
-        } catch (error) {
-            logger.error('Failed to initialize Redis service', { error });
-            throw error;
-        }
-    }
+            await this.client.connect();
+            logger.info('Connected to Redis');
 
-    private async loadDocumentCount() {
-        try {
-            const count = await this.redis.get('document_count');
-            this.documentCount = count ? parseInt(count, 10) : 0;
-            logger.info('Document count loaded', { count: this.documentCount });
-        } catch (error) {
-            logger.error('Failed to load document count', { error });
-            this.documentCount = 0;
-        }
-    }
-
-    async storeEmbedding(userId: string, messageId: string, embedding: number[]): Promise<void> {
-        try {
-            const key = `embedding:${userId}:${messageId}`;
-            await this.redis.set(key, JSON.stringify(embedding));
-            logger.info('Embedding stored in Redis', { userId, messageId });
-        } catch (error) {
-            logger.error('Error storing embedding in Redis', { error, userId, messageId });
-            throw error;
-        }
-    }
-
-    async getEmbeddings(userId: string): Promise<Record<string, number[]>> {
-        try {
-            const keys = await this.redis.keys(`embedding:${userId}:*`);
-            const embeddings: Record<string, number[]> = {};
-
-            for (const key of keys) {
-                const messageId = key.split(':').pop();
-                const embedding = await this.redis.get(key);
-                if (embedding && messageId) {
-                    try {
-                        embeddings[messageId] = JSON.parse(embedding);
-                    } catch (parseError) {
-                        logger.error('Error parsing embedding JSON', { error: parseError, userId, messageId });
-                    }
-                }
+            // Test RediSearch capability
+            try {
+                await this.client.sendCommand(['FT._LIST']);
+            } catch (error) {
+                throw new Error(
+                    'RediSearch module not detected. Please ensure you are using redis-stack image: ' +
+                    (error instanceof Error ? error.message : String(error))
+                );
             }
 
-            logger.info('Embeddings retrieved from Redis', { userId, count: keys.length });
-            return embeddings;
-        } catch (error) {
-            logger.error('Error retrieving embeddings from Redis', { error, userId });
-            throw error;
-        }
-    }
+            this.vectorStore = new RedisVectorStore(
+                this.embeddings,
+                {
+                    redisClient: this.client,
+                    indexName: 'conversations',
+                    keyPrefix: 'conversation:'
+                }
+            );
 
-    public async updateDocumentCount(delta: number) {
-        this.documentCount += delta;
-        await this.redis.set('document_count', this.documentCount.toString());
-    }
-
-    async saveConversation(userId: string, conversation: Conversation): Promise<void> {
-        try {
-            const conversationDoc = new Document({
-                pageContent: JSON.stringify(conversation.messages),
-                metadata: { userId, conversationId: conversation.id, type: 'conversation' }
-            });
-            await this.vectorStore.addDocuments([conversationDoc]);
-            await this.updateDocumentCount(1);
-            logger.info('Conversation saved to Redis', { conversationId: conversation.id, userId });
+            await this.vectorStore.createIndex();
+            this.initialized = true;
+            logger.info('Redis vector store initialized successfully');
         } catch (error) {
-            logger.error('Error saving conversation to Redis', { error, userId });
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            logger.error('Error initializing Redis', { error: errorMessage });
             throw error;
         }
     }
 
     async getConversation(userId: string): Promise<Conversation | null> {
         try {
-            const results = await this.vectorStore.similaritySearch(`userId:${userId} type:conversation`, 1);
-            if (results.length > 0) {
-                const conversation = JSON.parse(results[0].pageContent);
-                logger.info('Conversation retrieved from Redis', { userId });
-                return {
-                    id: results[0].metadata.conversationId as string,
-                    userId: userId,
-                    model: SUPPORTED_MODELS.includes(conversation.model as LLMType) ? conversation.model : SUPPORTED_MODELS[0],
-                    messages: conversation,
-                    createdAt: new Date(),
-                    updatedAt: new Date(),
-                    isArchived: false,
-                    userContext: ''
-                } as Conversation;
+            if (!this.initialized) {
+                await this.initialize();
             }
-            logger.info('No conversation found in Redis', { userId });
-            return null;
+            const key = `user:${userId}:conversation`;
+            const data = await this.client.get(key);
+            return data ? JSON.parse(data) : null;
         } catch (error) {
-            logger.error('Error getting conversation from Redis', { error, userId });
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            logger.error('Error retrieving conversation from Redis', { error: errorMessage, userId });
             throw error;
         }
     }
 
-    async deleteConversation(userId: string): Promise<void> {
+    async saveConversation(userId: string, conversation: Conversation): Promise<void> {
         try {
-            const results = await this.vectorStore.similaritySearch(`userId:${userId} type:conversation`, 100);
-            for (const doc of results) {
-                const key = `doc:${doc.metadata.conversationId}`;
-                await this.redis.del(key);
+            if (!this.initialized) {
+                await this.initialize();
             }
-            await this.updateDocumentCount(-results.length);
-            logger.info('Conversation deleted from Redis', { userId, deletedCount: results.length });
+
+            // Save the full conversation data
+            const key = `user:${userId}:conversation`;
+            await this.client.set(key, JSON.stringify(conversation));
+
+            // Also store as a document in the vector store
+            if (this.vectorStore) {
+                const conversationText = conversation.messages
+                    .map(msg => `${msg.role}: ${msg.content}`)
+                    .join('\n');
+                
+                await this.vectorStore.addDocuments([
+                    new Document({
+                        pageContent: conversationText,
+                        metadata: { userId, conversationId: conversation.id }
+                    })
+                ]);
+            }
+
+            logger.info('Conversation saved successfully', { userId });
         } catch (error) {
-            logger.error('Error deleting conversation from Redis', { error, userId });
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            logger.error('Error saving conversation to Redis', { error: errorMessage, userId });
             throw error;
         }
+    }
+
+    async similaritySearch(query: string, k: number = 3) {
+        if (!this.vectorStore) {
+            throw new Error('Vector store not initialized');
+        }
+        return await this.vectorStore.similaritySearch(query, k);
     }
 
     async addDocuments(documents: Document[]): Promise<void> {
-        try {
-            await this.vectorStore.addDocuments(documents);
-            await this.updateDocumentCount(documents.length);
-            logger.info(`Added ${documents.length} documents to vector store`);
-        } catch (error) {
-            logger.error('Error adding documents to vector store', { error });
-            throw error;
+        if (!this.vectorStore) {
+            throw new Error('Vector store not initialized');
         }
+        await this.vectorStore.addDocuments(documents);
     }
-
-    async similaritySearch(query: string, k: number = 4): Promise<Document[]> {
-        try {
-            const results = await this.vectorStore.similaritySearch(query, k);
-            logger.info(`Performed similarity search for query`, { query, resultCount: results.length });
-            return results;
-        } catch (error) {
-            logger.error('Error performing similarity search', { error, query });
-            throw error;
-        }
-    }
-
-    async storeUserContext(userId: string, context: string): Promise<void> {
-        try {
-            const contextDoc = new Document({
-                pageContent: context,
-                metadata: { userId, type: 'userContext' }
-            });
-            await this.vectorStore.addDocuments([contextDoc]);
-            await this.updateDocumentCount(1);
-            logger.info('User context stored in Redis', { userId });
-        } catch (error) {
-            logger.error('Error storing user context in Redis', { error, userId });
-            throw error;
-        }
-    }
-
-    async getUserContext(userId: string): Promise<string | null> {
-        try {
-            const results = await this.vectorStore.similaritySearch(`userId:${userId} type:userContext`, 1);
-            if (results.length > 0) {
-                logger.info('User context retrieved from Redis', { userId });
-                return results[0].pageContent;
-            }
-            logger.info('No user context found in Redis', { userId });
-            return null;
-        } catch (error) {
-            logger.error('Error retrieving user context from Redis', { error, userId });
-            throw error;
-        }
-    }
-
     async deleteAllDocuments(): Promise<void> {
+        if (!this.vectorStore) {
+            throw new Error('Vector store not initialized');
+        }
+        await this.vectorStore.delete({ deleteAll: true });
+    }
+
+    async storeEmbedding(userId: string, messageId: string, embedding: number[]): Promise<void> {
         try {
-            const keys = await this.redis.keys('doc:*');
-            if (keys.length > 0) {
-                await this.redis.del(...keys);
+            const key = `embeddings:${userId}`;
+            const existingData = await this.client.hGet(key, 'embeddings');
+            const embeddings = existingData ? JSON.parse(existingData) : {};
+            
+            embeddings[messageId] = embedding;
+            await this.client.hSet(key, 'embeddings', JSON.stringify(embeddings));
+            
+            logger.info('Embedding stored successfully', { userId, messageId });
+        } catch (error) {
+            logger.error('Error storing embedding', { error, userId, messageId });
+            throw error;
+        }
+    }
+
+    async getEmbeddings(userId: string): Promise<Record<string, number[]>> {
+        const pattern = `embeddings:${userId}:*`;
+        const keys = await this.client.keys(pattern);
+        const result: Record<string, number[]> = {};
+        
+        for (const key of keys) {
+            const messageId = key.split(':')[2];
+            const embedding = await this.client.get(key);
+            if (embedding) {
+                result[messageId] = JSON.parse(embedding);
             }
-            await this.updateDocumentCount(-this.documentCount);
-            logger.info('All documents deleted from Redis', { deletedCount: keys.length });
-        } catch (error) {
-            logger.error('Error deleting all documents from Redis', { error });
-            throw error;
         }
+        
+        return result;
     }
 
-    getDocumentCount(): number {
-        return this.documentCount;
+    async findMostSimilarEmbedding(userId: string, queryEmbedding: number[]): Promise<{ similarity: number; messageId: string }> {
+        const key = `embeddings:${userId}`;
+        const existingData = await this.client.hGet(key, 'embeddings');
+        if (!existingData) {
+            return { similarity: 0, messageId: '' };
+        }
+
+        const embeddings: Record<string, number[]> = JSON.parse(existingData);
+        let maxSimilarity = -1;
+        let bestMessageId = '';
+        
+        for (const [messageId, embedding] of Object.entries(embeddings)) {
+            const similarity = this.cosineSimilarity(queryEmbedding, embedding);
+            if (similarity > maxSimilarity) {
+                maxSimilarity = similarity;
+                bestMessageId = messageId;
+            }
+        }
+        
+        return { similarity: maxSimilarity, messageId: bestMessageId };
     }
 
-    async close(): Promise<void> {
-        try {
-            await this.redis.quit();
-            logger.info('Redis connection closed successfully');
-        } catch (error) {
-            logger.error('Error closing Redis connection', { error });
-            throw error;
-        }
+    private cosineSimilarity(a: number[], b: number[]): number {
+        const dotProduct = a.reduce((sum, val, i) => sum + val * b[i], 0);
+        const magnitudeA = Math.sqrt(a.reduce((sum, val) => sum + val * val, 0));
+        const magnitudeB = Math.sqrt(b.reduce((sum, val) => sum + val * val, 0));
+        return dotProduct / (magnitudeA * magnitudeB);
     }
 }
 
-const redisServicePromise = RedisService.initialize();
-export { redisServicePromise as redisService };
+// Add at the bottom:
+const redisClient = new RedisClientWrapper();
+export default redisClient;

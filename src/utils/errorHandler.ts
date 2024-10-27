@@ -3,10 +3,20 @@ import logger from './logger';
 
 export class AppError extends Error {
     statusCode: number;
+    originalError?: Error; // Optional property to hold the original error
 
-    constructor(message: string, statusCode: number) {
+    constructor(message: string, statusCode: number, originalError?: Error) {
         super(message);
         this.statusCode = statusCode;
+        this.originalError = originalError; // Store the original error if provided
+    }
+}
+
+// Add to src/utils/errorHandler.ts
+export class LangGraphError extends AppError {
+    constructor(message: string, statusCode: number = 500, originalError?: Error) {
+        super(message, statusCode, originalError);
+        this.name = 'LangGraphError';
     }
 }
 

@@ -16,7 +16,13 @@ app.get('/', (_, res) => {
 });
 
 // Webhook routes
-app.post('/twilio-webhook', handleTwilioWebhook);
+app.post('/twilio-webhook', async (req, res, next) => {
+    try {
+        await handleTwilioWebhook(req, res);
+    } catch (error) {
+        next(error);
+    }
+});
 
 // Error handling
 app.use(errorHandler);

@@ -1,6 +1,6 @@
 import { Message } from './message';
 
-export type LLMType = 'gpt-4o' | 'gpt-4o-mini' | 'claude-3-5-sonnet-20240620' | 'claude-3-opus-20240229';
+export type LLMType = 'gpt-4o' | 'gpt-4o-mini' | 'claude-3-5-sonnet-20241022' | 'claude-3-opus-20240229';
 
 export interface Conversation {
     id: string;
@@ -17,14 +17,14 @@ export interface Conversation {
 export const SUPPORTED_MODELS: LLMType[] = [
     'gpt-4o',
     'gpt-4o-mini',
-    'claude-3-5-sonnet-20240620',
+    'claude-3-5-sonnet-20241022',
     'claude-3-opus-20240229'
 ];
 
 export const MODEL_ALIASES: Record<string, LLMType> = {
     '4o': 'gpt-4o',
     'mini': 'gpt-4o-mini',
-    'sonnet': 'claude-3-5-sonnet-20240620',
+    'sonnet': 'claude-3-5-sonnet-20241022',
     'opus': 'claude-3-opus-20240229'
 };
 

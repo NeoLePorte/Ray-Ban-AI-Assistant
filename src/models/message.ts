@@ -1,6 +1,9 @@
 export interface BaseMessage {
   id: string;
   timestamp: number;
+  type: 'text' | 'image' | 'file';
+  role: 'user' | 'assistant' | 'system'; // expant roles later. loom system
+  content: string;
 }
 
 export interface TextMessage extends BaseMessage {

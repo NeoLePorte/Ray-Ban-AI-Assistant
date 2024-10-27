@@ -5,35 +5,37 @@ import { processMessage } from './messageController';
 import MessagingResponse = require('twilio/lib/twiml/MessagingResponse');
 
 export async function handleTwilioWebhook(req: Request, res: Response): Promise<void> {
-    logger.info('Received Twilio webhook request', { body: req.body });
     const { From, Body, NumMedia } = req.body;
-
-    if (From !== config.AUTHORIZED_PHONE_NUMBER) {
-        logger.warn('Unauthorized sender', { From });
-        res.sendStatus(403);
-        return;
-    }
-
-    const twiml = new MessagingResponse();
+    logger.info('Received Twilio webhook request', { body: req.body });
 
     try {
-        // Collect all media URLs
+        if (From !== config.AUTHORIZED_PHONE_NUMBER) {
+            logger.warn('Unauthorized sender', { From });
+            const twiml = new MessagingResponse();
+            twiml.message('Unauthorized number');
+            res.type('text/xml').send(twiml.toString());
+            return;
+        }
+
         const mediaUrls = [];
-        for (let i = 0; i < parseInt(NumMedia); i++) {
+        for (let i = 0; i < parseInt(NumMedia || '0'); i++) {
             mediaUrls.push(req.body[`MediaUrl${i}`]);
         }
 
-        // Process message asynchronously
-        processMessage(From, { text: Body, mediaUrls }).catch(error => {
-            logger.error('Error processing message', { error, From });
-        });
+        // Process message first
+        await processMessage(From, { text: Body, mediaUrls });
+        
+        // Send success response after processing
+        const twiml = new MessagingResponse();
+        twiml.message('Message processed successfully');
+        res.type('text/xml').send(twiml.toString());
 
-        // Respond immediately to Twilio
-        twiml.message('Your message has been received and is being processed.');
     } catch (error) {
-        logger.error('Error handling Twilio webhook', { error });
-        twiml.message('Sorry, there was an error processing your message.');
+        logger.error('Error handling Twilio webhook', { 
+            error: error instanceof Error ? error.message : error
+        });
+        const twiml = new MessagingResponse();
+        twiml.message('An error occurred processing your message.');
+        res.type('text/xml').send(twiml.toString());
     }
-
-    res.type('text/xml').send(twiml.toString());
 }

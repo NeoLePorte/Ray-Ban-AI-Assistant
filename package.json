@@ -1,7 +1,7 @@
 {
   "name": "ray-ban-ai-assistant",
   "version": "1.0.0",
-  "description": "AI Assistant for Ray-Ban Meta smart glasses using WhatsApp integration",
+  "description": "AI Assistant for Ray-Ban Meta smart glasses using Twilio integration",
   "main": "dist/index.js",
   "scripts": {
     "start": "node dist/index.js",
@@ -14,13 +14,15 @@
     "ray-ban",
     "meta",
     "ai",
-    "whatsapp",
+    "twilio",
     "assistant"
   ],
-  "author": "Your Name",
+  "author": "devcrvft",
   "license": "ISC",
   "dependencies": {
     "@langchain/anthropic": "^0.0.10",
+    "@langchain/core": "^0.3.15",
+    "@langchain/langgraph": "^0.2.18",
     "@langchain/openai": "^0.0.14",
     "@redis/client": "^1.5.14",
     "@redis/graph": "^1.1.1",

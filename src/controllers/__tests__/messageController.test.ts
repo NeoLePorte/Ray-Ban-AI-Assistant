@@ -1,7 +1,7 @@
 import { processMessage } from '../messageController';
 import { Conversation } from '../../models/conversation';
 import * as ragService from '../../services/ragService';
-import { redisService, RedisService } from '../../services/redisService';
+import redisService from '../../services/redisService';
 import { sendMMS } from '../../services/twilioService';
 import logger from '../../utils/logger';
 
@@ -9,9 +9,8 @@ jest.mock('../../services/ragService');
 jest.mock('../../services/redisService');
 jest.mock('../../services/twilioService');
 jest.mock('../../utils/logger');
-
 describe('MessageController', () => {
-    let mockRedisService: jest.Mocked<RedisService>;
+    let mockRedisService: jest.Mocked<typeof redisService>;
     let mockConversation: Conversation;
 
     beforeEach(() => {
@@ -38,9 +37,9 @@ describe('MessageController', () => {
             storeEmbedding: jest.fn().mockResolvedValue(undefined),
             getEmbeddings: jest.fn().mockResolvedValue({}),
             deleteDocuments: jest.fn().mockResolvedValue(undefined),
-        } as unknown as jest.Mocked<RedisService>;
+        } as unknown as jest.Mocked<typeof redisService>;
 
-        (redisService as unknown) = Promise.resolve(mockRedisService);
+        Object.assign(redisService, mockRedisService);
     });
 
     describe('processMessage', () => {

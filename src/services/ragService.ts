@@ -4,12 +4,16 @@ import { PDFLoader } from "langchain/document_loaders/fs/pdf";
 import logger from '../utils/logger';
 import { getLangChainResponse, getLangChainImageResponse } from './langchainService';
 import { LLMType } from '../models/conversation';
-import { redisService } from './redisService';
+import redisService from './redisService';
 import mammoth from 'mammoth';
 import ExcelJS from 'exceljs';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { OpenAIEmbeddings } from "@langchain/openai";
+import { LangGraphService } from './langGraphService';
+import { AppError } from '../utils/errorHandler';  // Adjust the path as needed
+import { LangGraphError } from '../utils/errorHandler';  // Adjust the path as needed
 
 let documentCount = 0;
 
@@ -93,41 +97,96 @@ export async function retrieveRelevantDocuments(query: string, k: number = 3): P
     logger.info(`Retrieved ${documents.length} relevant documents for query`, { query });
     return documents;
   } catch (error) {
-    logger.error('Error retrieving relevant documents', { error, query });
-    throw error;
+    logger.error('Error retrieving relevant documents', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      query
+    });
+    return []; // Return empty array instead of throwing
   }
 }
 
 export async function generateAnswer(query: string, model: LLMType, userContext?: string): Promise<string> {
-  const relevantDocs = await retrieveRelevantDocuments(query);
-  const context = relevantDocs.map(doc => doc.pageContent).join('\n\n');
-  const systemPrompt = `You are an AI assistant for smart glasses. Answer the question based on the following context and user-specific information. If the context doesn't contain relevant information, use your general knowledge to provide a helpful response. Keep your answers concise and suitable for brief voice interactions.
+  try {
+    logger.info('Starting answer generation', { 
+      query, 
+      model,
+      hasUserContext: !!userContext 
+    });
 
-Context: ${context}
-User-specific information: ${userContext || 'None provided'}
+    const langGraph = new LangGraphService(model);
+    
+    // Get relevant documents
+    const relevantDocs = await retrieveRelevantDocuments(query, 3);
+    logger.debug('Retrieved relevant documents', {
+      query,
+      documentCount: relevantDocs.length,
+      documentSources: relevantDocs.map(doc => doc.metadata?.source)
+    });
 
-Question: ${query}
+    const currentContext = relevantDocs.map(doc => doc.pageContent).join('\n');
+    const contextString = currentContext || userContext || '';
+    
+    logger.debug('Processing with context', {
+      query,
+      contextLength: contextString.length,
+      model
+    });
+    
+    // Process the message with context using the new LangGraph implementation
+    const response = await langGraph.processMessage(query, contextString);
 
-Answer:`;
-  
-  return await getLangChainResponse(query, model, systemPrompt);
+    logger.info('Answer generated successfully', {
+      query,
+      responseLength: response.length,
+      model
+    });
+
+    return response;
+  } catch (error) {
+    logger.error('Error generating answer', { 
+      error: error instanceof Error ? {
+        message: error.message,
+        stack: error.stack,
+        name: error.name,
+        cause: error.cause
+      } : error,
+      query, 
+      model,
+      step: 'generateAnswer'
+    });
+
+    // Determine appropriate error message and status code
+    if (error instanceof LangGraphError) {
+      throw error; // Propagate LangGraph errors as-is
+    } else if (error instanceof AppError) {
+      throw error; // Propagate other AppErrors as-is
+    } else {
+      throw new AppError(
+        'Failed to generate answer',
+        500,
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
 }
 
 export async function analyzeImageAndRetrieveInfo(imageUrl: string, query: string, model: LLMType): Promise<string> {
-  const imageAnalysis = await getLangChainImageResponse(query, imageUrl, model, "Analyze this image and describe what you see.");
-  const relevantDocs = await retrieveRelevantDocuments(imageAnalysis);
-  const context = relevantDocs.map(doc => doc.pageContent).join('\n\n');
-  
-  const systemPrompt = `You are an AI assistant for smart glasses. Based on the image analysis and the following context, provide a concise and informative response to the user's query. If the context doesn't contain relevant information, use your general knowledge.
+  try {
+    const langGraph = new LangGraphService(model);
+    const imageAnalysis = await getLangChainImageResponse(query, imageUrl, model, "Analyze this image and describe what you see.");
+    const relevantDocs = await retrieveRelevantDocuments(imageAnalysis);
+    const context = relevantDocs.map(doc => doc.pageContent).join('\n\n');
+    
+    const response = await langGraph.processMessage(
+      query,
+      `Image Analysis: ${imageAnalysis}\nContext: ${context}`
+    );
 
-Image Analysis: ${imageAnalysis}
-Context: ${context}
-
-User's Query: ${query}
-
-Response:`;
-
-  return await getLangChainResponse(query, model, systemPrompt);
+    return response;
+  } catch (error) {
+    logger.error('Error analyzing image', { error, query, model });
+    throw new Error('Failed to analyze image');
+  }
 }
 
 export async function getLocationBasedInfo(location: string, query: string, model: LLMType): Promise<string> {
@@ -160,4 +219,25 @@ export async function clearVectorStore(): Promise<void> {
 
 export function getVectorStoreSize(): number {
   return documentCount;
+}
+
+export async function getAndStoreEmbedding(userId: string, messageId: string, text: string): Promise<number[]> {
+    try {
+        const embeddings = new OpenAIEmbeddings({ openAIApiKey: process.env.OPENAI_API_KEY });
+        const embedding = await embeddings.embedQuery(text);
+        
+        // Store in Redis
+        const redis = await redisService;
+        await redis.storeEmbedding(userId, messageId, embedding);
+        
+        logger.info('Embedding stored successfully', { userId, messageId });
+        return embedding;
+    } catch (error) {
+        logger.error('Error generating and storing embedding', { 
+            error: error instanceof Error ? error.message : 'Unknown error',
+            userId, 
+            messageId 
+        });
+        throw new Error('Failed to generate and store embedding');
+    }
 }

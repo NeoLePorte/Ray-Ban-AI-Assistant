@@ -1,12 +1,12 @@
 import { OpenAIEmbeddings } from "langchain/embeddings/openai";
 import { config } from '../config';
 import logger from '../utils/logger';
-import { redisService } from './redisService';
+import redisService from './redisService';
 
 export function getEmbeddings() {
     return new OpenAIEmbeddings({ 
         openAIApiKey: config.OPENAI_API_KEY,
-        modelName: config.EMBEDDING_MODEL 
+        modelName: "text-embedding-ada-002" // Using a default model name
     });
 }
 
